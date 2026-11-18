@@ -73,6 +73,9 @@
     figure { margin: 1rem 0; }
     svg, img, canvas { display: block; max-width: 100%; height: auto; }
     .chart-scroll > .wide-chart { width: 100%; min-width: 38rem; max-width: none; }
+    .wide-chart text { fill: var(--muted); font-size: 11px; }
+    [data-note] { cursor: pointer; }
+    .chart-legend { display: flex; flex-wrap: wrap; gap: .25rem 1rem; font-size: .9rem; }
     .range-chart { display: grid; gap: .7rem; margin: .85rem 0; }
     .range-row {
       display: grid;
@@ -82,10 +85,11 @@
     }
     .range-track { position: relative; height: .7rem; border-radius: .4rem; background: #edf2f0; }
     .range-band { position: absolute; inset-block: 0; border-radius: .4rem; background: var(--accent); }
+    button.range-band { padding: 0; border: 0; min-width: .35rem; }
     .range-band.conservative { background: var(--conservative); }
     .range-band.neutral { background: var(--neutral); }
     .range-band.optimistic { background: var(--optimistic); }
-    .range-market { position: absolute; inset-block: -.25rem; width: 2px; background: var(--ink); }
+    .range-market { position: absolute; inset-block: -.25rem; width: 2px; background: var(--ink); pointer-events: none; }
     details { margin-top: .7rem; padding: .6rem .75rem; border: 1px solid var(--line); border-radius: .5rem; }
     summary { cursor: pointer; font-weight: 650; }
     li + li { margin-top: .35rem; }
@@ -98,18 +102,6 @@
     }
   </style>
 </head>
-<!--
-  填入雙大括號的欄位。文字欄位做 HTML 跳脫，body 欄位填 HTML 片段。
-  metrics 填三至四組 <div><dt>指標及單位</dt><dd>數值</dd></div>。
-  寬表格用 .table-scroll 包住，補 caption，數字欄用 .numeric。可捲動區域提供鍵盤焦點及標籤。
-  價格區間用 .range-chart 和 .range-row。每列放情境、.range-track 與區間數字。
-  在 .range-track 內按同一數軸定位 .range-band 的 left、width 及 .range-market 的 left。
-  股價圖等寬圖用 .chart-scroll 與 .wide-chart。圖下保留單位、期間及資料來源。
-  script type=application/json 的研究快照欄位為 subject、as_of、input、assumption、formula、source。
-  source 各筆可列 name、url、data_date、published_at。用實際研究需要的欄位即可。
-  將 JSON 內的字面小於符號跳脫為 \u003c。無快照需求的報告可刪除此區塊。
-  需要圖表程式時放在成品檔案內，沿用上方配色並確認可離線操作。
--->
 <body>
   <main class="wrap">
     <header>
@@ -150,6 +142,23 @@
   </main>
   <script id="research-data" type="application/json">
     {{research_data}}
+  </script>
+  <script>
+    for (const point of document.querySelectorAll("[data-note]")) {
+      const show = () => {
+        const note = point.closest("figure").querySelector("[data-chart-note]");
+        note.textContent = point.dataset.note;
+      };
+      point.addEventListener("click", show);
+      if (point instanceof SVGElement) {
+        point.addEventListener("keydown", event => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            show();
+          }
+        });
+      }
+    }
   </script>
 </body>
 </html>
