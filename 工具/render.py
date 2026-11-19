@@ -265,12 +265,15 @@ def hbar_chart(title, item, unit="%"):
     row = 26
     height = row * len(item) + 12
     top = max(v for _, v in item) or 1
-    left, right = 150, 70
+    short = [n if len(n) <= 22 else n[:20] + "…" for n, _ in item]
+    # 中文字約佔兩個英文字寬，依最長名稱決定左側寬度
+    width = max(sum(2 if ord(c) > 0x2E80 else 1 for c in n) for n in short)
+    left, right = min(240, 24 + width * 7), 70
     part = []
     for i, (name, value) in enumerate(item):
         cy = 6 + i * row
         length = (W - left - right) * value / top
-        part.append(f'<text class="axis label" x="{left - 8}" y="{cy + 15}" text-anchor="end">{esc(name)}</text>')
+        part.append(f'<text class="axis label" x="{left - 8}" y="{cy + 15}" text-anchor="end">{esc(short[i])}</text>')
         part.append(f'<rect x="{left}" y="{cy + 4}" width="{max(length, 2):.1f}" height="16" rx="2" fill="var(--s1)"/>')
         part.append(f'<text class="value" x="{left + length + 6:.1f}" y="{cy + 16}">{num(value)}{esc(unit)}</text>')
         part.append(f'<rect class="hit" x="0" y="{cy}" width="{W}" height="{row}" data-tip="{esc(name)}&#10;{num(value)}{esc(unit)}"/>')
