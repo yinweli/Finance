@@ -101,7 +101,8 @@ def valuation(ticker, exchange, months, day):
             continue
         data.add_source(f"{EXCHANGE_NAME[exchange]}｜{ticker} 個股本益比、殖利率及股價淨值比", url.split("?")[0])
         for itor in row:
-            data.row.append([roc_date(itor[0]).isoformat()] + [number(itor[i]) for i in pick[:3]] + [str(itor[pick[3]])])
+            if len(itor) > max(pick):
+                data.row.append([roc_date(itor[0]).isoformat()] + [number(itor[i]) for i in pick[:3]] + [str(itor[pick[3]])])
     return data
 
 

@@ -4,6 +4,7 @@ import json
 import re
 import statistics
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -12,6 +13,7 @@ import fetch_market
 from source import CACHE, ROOT, Dataset, today as now
 
 TYPES = ("個股", "股票ETF", "債券ETF")
+MONTHS = 26  # 行情與指數抓 26 個月，才足以計算 2 年報酬
 
 
 def profile(ticker):
@@ -47,32 +49,37 @@ def collect(ticker, work, day, log=print):
         for itor in result if isinstance(result, list) else [result]:
             data[itor.name] = itor
 
-    run("price", lambda: fetch_data.daily(ticker, exchange, 25, day))
-    run("dividend", lambda: fetch_data.dividend(ticker, exchange, day - timedelta(days=730), day))
-    run("taiex", lambda: fetch_market.taiex(25, day))
+    # 先抓加權指數作為交易日曆，其餘依主機分組同時抓取：同一主機依序、不同主機並行
+    run("taiex", lambda: fetch_market.taiex(MONTHS, day))
     calendar = data["taiex"]
     days60 = fetch_market.trading_days(calendar, 60)
+    stock = info["類型"] == "個股"
+    group = {"證交所": [("market_margin", lambda: fetch_market.market_margin(days60, day))],
+             "櫃買中心": [], "觀測站": [], "其他": [("futures", lambda: fetch_market.futures(4, day))]}
+    venue = group["證交所" if exchange == "TWSE" else "櫃買中心"]
+    venue += [("price", lambda: fetch_data.daily(ticker, exchange, MONTHS, day)),
+              ("dividend", lambda: fetch_data.dividend(ticker, exchange, day - timedelta(days=730), day))]
     if exchange == "TPEx":
-        run("otc_index", lambda: fetch_market.otc_index(25, day))
-    run("market_margin", lambda: fetch_market.market_margin(days60, day))
-    run("futures", lambda: fetch_market.futures(4, day))
-    if info["類型"] == "個股":
-        run("valuation", lambda: fetch_data.valuation(ticker, exchange, 25, day))
-        run("financial", lambda: fetch_data.financial(ticker, 12, day))
-        run("revenue", lambda: fetch_data.revenue(ticker, 25, day))
-        run("institutional", lambda: fetch_market.institutional(ticker, exchange, days60, day))
-        run("margin", lambda: fetch_market.margin(ticker, exchange, days60, day))
+        group["櫃買中心"].append(("otc_index", lambda: fetch_market.otc_index(MONTHS, day)))
+    if stock:
+        venue += [("valuation", lambda: fetch_data.valuation(ticker, exchange, MONTHS, day)),
+                  ("institutional", lambda: fetch_market.institutional(ticker, exchange, days60, day)),
+                  ("margin", lambda: fetch_market.margin(ticker, exchange, days60, day)),
+                  ("foreign_ratio", lambda: fetch_market.foreign_ratio(ticker, exchange, calendar, 24))]
         if exchange == "TWSE":
-            run("lending", lambda: fetch_market.lending(ticker, days60[-20:], day))
-        run("foreign_ratio", lambda: fetch_market.foreign_ratio(ticker, exchange, calendar, 24))
-        run("holders", lambda: fetch_market.holders(ticker))
+            venue.append(("lending", lambda: fetch_market.lending(ticker, days60[-20:], day)))
+        group["觀測站"] += [("financial", lambda: fetch_data.financial(ticker, 12, day)),
+                         ("revenue", lambda: fetch_data.revenue(ticker, 25, day))]
+        group["其他"].append(("holders", lambda: fetch_market.holders(ticker)))
     else:
-        run("etf", lambda: fetch_data.etf(ticker))
-        run("fx", lambda: fetch_market.fx(25, day))
-        if "nav" in data:
-            data["scale"] = scale_history(ticker, data["nav"])
+        group["其他"] += [("etf", lambda: fetch_data.etf(ticker)), ("fx", lambda: fetch_market.fx(MONTHS, day))]
     if info["類型"] == "債券ETF":
-        run("ust", lambda: fetch_market.ust(2, day))
+        group["其他"].append(("ust", lambda: fetch_market.ust(2, day)))
+    with ThreadPoolExecutor(max_workers=len(group)) as pool:
+        for future in [pool.submit(lambda job: [run(name, call) for name, call in job], job) for job in group.values()]:
+            future.result()
+    if "nav" in data:
+        data["scale"] = scale_history(ticker, data["nav"])
 
     for itor in data.values():
         itor.save(folder)
@@ -154,7 +161,7 @@ def price_section(data):
     line = [f"## 行情（{data['price'].title}）", "",
             f"- 最新收盤：{fmt(last[4])} 元（{last[0]}）",
             f"- 近 52 週：最高 {fmt(max(year))}、最低 {fmt(min(year))}，現價位於區間 "
-            f"{(last[4] - min(year)) / (max(year) - min(year)) * 100:.0f}% 處" if max(year) > min(year) else "",
+            f"{(last[4] - min(year)) / (max(year) - min(year)) * 100:.0f}% 處" if max(year) > min(year) else None,
             "- 均線：" + "、".join(f"{n} 日 {fmt(mean(close[-n:]))}" for n in (20, 60, 120, 240) if len(close) >= n),
             "- 報酬：" + "、".join(f"{label} {pct(change(close, n))}"
                                 for label, n in (("1 個月", 21), ("3 個月", 63), ("6 個月", 126), ("1 年", 250),
@@ -226,7 +233,7 @@ def chips_section(data):
         body = []
         for i, name in ((1, "融資餘額"), (2, "融券餘額")):
             value = [r[i] for r in row]
-            body.append([name, fmt(value[-1], 0)] + [pct(change(value, n)) for n in (5, 20, 59)])
+            body.append([name, fmt(value[-1], 0)] + [pct(change(value, min(n, len(value) - 1))) for n in (5, 20, 60)])
         line += ["", f"### 融資融券（{row[-1][0]}，張）", "", table(["項目", "最新", "5 日變動", "20 日變動", "60 日變動"], body)]
     if "lending" in data and data["lending"].row:
         value = [r[1] for r in data["lending"].row]
@@ -331,8 +338,8 @@ def macro_section(data):
 
 
 def summarize(info, data):
-    head = [f"# {info['代號']} {info['名稱']} 資料摘要", "",
-            f"- 類型：{info['類型']}；交易所：{info['交易所']}；研究日：{info['研究日']}",
+    head = [f"# {info['代號']} {info['名稱']} 資料摘要\n\n"
+            f"- 類型：{info['類型']}；交易所：{info['交易所']}；研究日：{info['研究日']}\n"
             f"- 本檔由 `工具/collect.py` 產生，完整資料在 `資料/*.json`。數字以本檔與 `資料/` 為準。"]
     part = [price_section(data), valuation_section(data), financial_section(data), revenue_section(data),
             dividend_section(data), etf_section(data), chips_section(data), market_section(data), macro_section(data)]

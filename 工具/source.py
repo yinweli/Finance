@@ -2,6 +2,7 @@
 import hashlib
 import json
 import re
+import threading
 import time
 from datetime import date, datetime, timedelta, timezone
 from html import unescape
@@ -19,6 +20,8 @@ CACHE = ROOT / ".tmp" / "快取"
 
 _memory = {}
 _last = {}
+_lock = {}
+_guard = threading.Lock()
 
 
 def today():
@@ -40,26 +43,29 @@ def fetch(url, form=None, encoding="utf-8", keep=False):
         return _memory[key]
     host = urlsplit(url).hostname
     body = urlencode(form).encode() if form else None
-    # 尖峰時偶爾回 5xx 或連線逾時，間隔後重試；其他錯誤直接回報。
-    for attempt in range(3):
-        wait = _last.get(host, -PAUSE) + PAUSE * (1 + 3 * attempt) - time.monotonic()
-        if wait > 0:
-            time.sleep(wait)
-        try:
-            with urlopen(Request(url, data=body, headers={"User-Agent": AGENT}), timeout=60) as response:
-                text = response.read().decode(encoding, errors="replace")
-            break
-        except HTTPError as error:
-            if error.code == 404:
-                text = ""
-                break
-            if error.code < 500 or attempt == 2:
-                raise
-        except (URLError, TimeoutError):
-            if attempt == 2:
-                raise
-        finally:
+    with _guard:
+        lock = _lock.setdefault(host, threading.Lock())
+    # 同一主機一次只送一個請求，間隔從上一個請求開始時起算；不同主機可同時抓取。
+    with lock:
+        # 尖峰時偶爾回 5xx 或連線逾時，間隔後重試；其他錯誤直接回報。
+        for attempt in range(3):
+            wait = _last.get(host, -PAUSE) + PAUSE * (1 + 3 * attempt) - time.monotonic()
+            if wait > 0:
+                time.sleep(wait)
             _last[host] = time.monotonic()
+            try:
+                with urlopen(Request(url, data=body, headers={"User-Agent": AGENT}), timeout=60) as response:
+                    text = response.read().decode(encoding, errors="replace")
+                break
+            except HTTPError as error:
+                if error.code == 404:
+                    text = ""
+                    break
+                if error.code < 500 or attempt == 2:
+                    raise
+            except (URLError, TimeoutError):
+                if attempt == 2:
+                    raise
     _memory[key] = text
     if keep and text.strip() and (keep is True or keep(text)):
         path.parent.mkdir(parents=True, exist_ok=True)
