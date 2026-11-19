@@ -158,8 +158,6 @@ def frame(tick, y, label, x, unit=""):
         part.append(f'<text class="axis" x="{PAD_L - 6}" y="{py + 4:.1f}" text-anchor="end">{axis_num(value)}</text>')
     for index in thin(label):
         part.append(f'<text class="axis" x="{x(index):.1f}" y="{H - 8}" text-anchor="middle">{esc(label[index])}</text>')
-    if unit:
-        part.append(f'<text class="axis" x="{PAD_L - 6}" y="{PAD_T - 4}" text-anchor="end">{esc(unit)}</text>')
     return part
 
 
@@ -197,7 +195,7 @@ def line_chart(title, label, series, unit="", band=None, mark=None):
     if band:
         part.append(f'<rect class="band" x="{PAD_L}" width="{W - PAD_L - PAD_R}" y="{y(band[1]):.1f}" '
                     f'height="{y(band[0]) - y(band[1]):.1f}"/>')
-        part.append(f'<text class="band-label" x="{W - PAD_R - 4}" y="{y(band[1]) + 12:.1f}" text-anchor="end">{esc(band[2])}</text>')
+        part.append(f'<text class="band-label" x="{PAD_L + 6}" y="{y(band[1]) + 12:.1f}">{esc(band[2])}</text>')
     for name, color, data, style in series:
         path, pen = [], False
         for i, v in enumerate(data):
@@ -280,39 +278,50 @@ def hbar_chart(title, item, unit="%"):
 
 
 def range_chart(key, result):
-    """合理區間帶、現價與 6／12 個月中性與期望價的位置。"""
+    """點圖：合理區間、6 個月與 12 個月三情境，現價以貫穿各列的虛線表示。"""
     fair = key["合理區間"]
     price = key["現價"]["價格"]
-    point = [("現價", price, "var(--ink)")]
-    for horizon in HORIZON:
-        point.append((f"{horizon}期望", result[horizon]["期望"]["價格"], "var(--s1)"))
-    case = [key["情境"][h][n]["價格"] for h in HORIZON for n in CASE]
-    low = min([fair["低"], price] + case)
-    high = max([fair["高"], price] + case)
-    margin = (high - low) * 0.08 or 1
-    low, high = low - margin, high + margin
-    height = 120
-    x = lambda v: PAD_L + (W - PAD_L - PAD_R) * (v - low) / (high - low)
-    part = [f'<line class="grid" x1="{PAD_L}" x2="{W - PAD_R}" y1="70" y2="70"/>']
-    for value in nice(low, high, 6):
-        if low <= value <= high:
-            part.append(f'<text class="axis" x="{x(value):.1f}" y="{height - 6}" text-anchor="middle">{axis_num(value)}</text>')
-    part.append(f'<rect class="fair" x="{x(fair["低"]):.1f}" y="56" width="{x(fair["高"]) - x(fair["低"]):.1f}" height="28" rx="4" '
-                f'data-tip="合理區間&#10;{num(fair["低"])}～{num(fair["高"])} 元"/>')
-    part.append(f'<text class="band-label" x="{(x(fair["低"]) + x(fair["高"])) / 2:.1f}" y="50" text-anchor="middle">'
-                f'合理區間 {num(fair["低"])}～{num(fair["高"])}</text>')
-    for i, horizon in enumerate(HORIZON):
-        lo = key["情境"][horizon]["保守"]["價格"]
-        hi = key["情境"][horizon]["樂觀"]["價格"]
-        cy = 92 + i * 0
-        part.append(f'<line class="whisker" x1="{x(lo):.1f}" x2="{x(hi):.1f}" y1="{cy + i * 6}" y2="{cy + i * 6}"/>')
-    for i, (name, value, color) in enumerate(point):
-        cx = x(value)
-        part.append(f'<circle cx="{cx:.1f}" cy="70" r="7" fill="{color}" stroke="var(--surface)" stroke-width="2" '
-                    f'data-tip="{esc(name)}&#10;{num(value)} 元"/>')
-        part.append(f'<text class="axis label" x="{cx:.1f}" y="{20 + (i % 2) * 14}" text-anchor="middle">{esc(name)} {num(value)}</text>')
-        part.append(f'<line class="divider" x1="{cx:.1f}" x2="{cx:.1f}" y1="{24 + (i % 2) * 14}" y2="62"/>')
-    return svg(part, "合理區間與預期價格（元）", height=height)
+    value = [fair["低"], fair["高"], price] + [key["情境"][h][n]["價格"] for h in HORIZON for n in CASE]
+    tick = nice(min(value), max(value), 6)
+    low, high = tick[0], tick[-1]
+    left, right, top, row = 120, 24, 34, 52
+    height = top + row * 3 + 26
+    x = lambda v: left + (W - left - right) * (v - low) / (high - low)
+    part = []
+    for t in tick:
+        part.append(f'<line class="grid" x1="{x(t):.1f}" x2="{x(t):.1f}" y1="{top - 6}" y2="{top + row * 3 - 10}"/>')
+        part.append(f'<text class="axis" x="{x(t):.1f}" y="{height - 6}" text-anchor="middle">{axis_num(t)}</text>')
+    # 第 1 列：合理區間
+    cy = top + row * 0.5 - 4
+    part.append(f'<text class="axis label" x="{left - 12}" y="{cy + 4}" text-anchor="end">合理區間</text>')
+    part.append(f'<rect class="fair" x="{x(fair["低"]):.1f}" y="{cy - 10}" width="{max(x(fair["高"]) - x(fair["低"]), 2):.1f}" '
+                f'height="20" rx="4" data-tip="合理區間&#10;{num(fair["低"])}～{num(fair["高"])} 元"/>')
+    part.append(f'<text class="value" x="{x(fair["低"]) - 6:.1f}" y="{cy + 4}" text-anchor="end">{num(fair["低"])}</text>')
+    part.append(f'<text class="value" x="{x(fair["高"]) + 6:.1f}" y="{cy + 4}">{num(fair["高"])}</text>')
+    # 第 2、3 列：情境
+    for i, horizon in enumerate(HORIZON, 1):
+        cy = top + row * (i + 0.5) - 4
+        case = key["情境"][horizon]
+        expect = result[horizon]["期望"]["價格"]
+        part.append(f'<text class="axis label" x="{left - 12}" y="{cy + 4}" text-anchor="end">{horizon}情境</text>')
+        part.append(f'<line class="whisker" x1="{x(case["保守"]["價格"]):.1f}" x2="{x(case["樂觀"]["價格"]):.1f}" '
+                    f'y1="{cy}" y2="{cy}"/>')
+        for name in CASE:
+            v = case[name]["價格"]
+            part.append(f'<circle cx="{x(v):.1f}" cy="{cy}" r="7" fill="{COLOR[name]}" stroke="var(--surface)" stroke-width="2" '
+                        f'data-tip="{horizon}{name}（機率 {case[name]["機率"]}%）&#10;{num(v)} 元"/>')
+        for name in ("保守", "樂觀"):
+            v = case[name]["價格"]
+            part.append(f'<text class="value" x="{x(v):.1f}" y="{cy + 22}" text-anchor="middle">{num(v)}</text>')
+        ex = x(expect)
+        part.append(f'<path d="M{ex:.1f},{cy - 13} l6,6 l-6,6 l-6,-6 z" fill="var(--ink)" stroke="var(--surface)" stroke-width="1.5" '
+                    f'data-tip="{horizon}機率加權期望價&#10;{num(expect)} 元"/>')
+    # 現價
+    px = x(price)
+    part.append(f'<line class="divider" x1="{px:.1f}" x2="{px:.1f}" y1="{top - 10}" y2="{top + row * 3 - 10}"/>')
+    part.append(f'<text class="axis label" x="{px:.1f}" y="{top - 16}" text-anchor="middle">現價 {num(price)}</text>')
+    legend = [(n, COLOR[n], "dot") for n in CASE] + [("機率加權期望價（◆）", "var(--ink)", "dot")]
+    return svg(part, "合理區間與 6／12 個月情境（元）", legend, height=height)
 
 
 def scenario_chart(key, result, data):

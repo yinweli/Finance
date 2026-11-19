@@ -94,7 +94,7 @@ class RenderTest(unittest.TestCase):
             (work / "定稿.md").write_text(draft(), encoding="utf-8")
             target = render.render(work / "定稿.md", work, Path(folder) / "out.html")
             page = target.read_text(encoding="utf-8")
-            for word in ("合理區間與預期價格", "股價與 6／12 個月情境", "單季 EPS", "<table", "<li>重點一</li>",
+            for word in ("合理區間與 6／12 個月情境", "股價與 6／12 個月情境", "單季 EPS", "<table", "<li>重點一</li>",
                          "<strong>1</strong>", "工程驗收", "櫃買中心｜個股日成交資訊"):
                 self.assertIn(word, page)
             self.assertNotIn("{{", page)

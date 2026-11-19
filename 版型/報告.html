@@ -75,7 +75,10 @@ code { background: var(--surface2); padding: 1px 5px; border-radius: 4px; font-s
 table { border-collapse: collapse; width: 100%; font-size: .92rem; font-variant-numeric: tabular-nums; }
 th, td { padding: 7px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
 th { color: var(--ink2); font-weight: 600; background: var(--surface2); white-space: nowrap; }
-table.scenario td:nth-child(-n+6), table.events td:nth-child(-n+6) { white-space: nowrap; }
+table.scenario td:nth-child(-n+6) { white-space: nowrap; }
+table.events td:nth-child(1), table.events td:nth-child(n+3):nth-child(-n+6) { white-space: nowrap; }
+table.events td:nth-child(2) { min-width: 9em; }
+table.events td:nth-child(7) { min-width: 16em; }
 .charts { display: grid; gap: 16px; margin-top: 16px; }
 figure.chart { margin: 0; border: 1px solid var(--line); border-radius: 10px; padding: 12px 12px 4px; position: relative; }
 figure.chart figcaption { font-weight: 600; font-size: .95rem; color: var(--ink); }
