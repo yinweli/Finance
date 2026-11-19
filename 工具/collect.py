@@ -80,6 +80,7 @@ def collect(ticker, work, day, log=print):
             future.result()
     if "nav" in data:
         data["scale"] = scale_history(ticker, data["nav"])
+    adjust_split(data.get("price"), data.get("dividend"))
 
     for itor in data.values():
         itor.save(folder)
@@ -90,6 +91,38 @@ def collect(ticker, work, day, log=print):
     summary = Path(work) / "資料摘要.md"
     summary.write_text(summarize(info, data), encoding="utf-8")
     return info, data
+
+
+def adjust_split(price, dividend=None):
+    """偵測股票分割（相鄰交易日收盤價約為 1/k），把分割前的價格、成交量與每股配息換算成分割後的基準。"""
+    if not price or len(price.row) < 2:
+        return []
+    found = []
+    for before, after in zip(price.row, price.row[1:]):
+        if not before[4] or not after[4]:
+            continue
+        ratio = before[4] / after[4]
+        for k in range(2, 11):
+            # 單日漲跌幅限制 10%，比例接近整數倍只可能是分割（或反分割）
+            if abs(ratio / k - 1) < 0.12:
+                found.append((after[0], k))
+            elif abs(ratio * k - 1) < 0.12:
+                found.append((after[0], 1 / k))
+    for day, k in found:
+        for itor in price.row:
+            if itor[0] < day:
+                itor[1:5] = [round(v / k, 4) if v is not None else None for v in itor[1:5]]
+                itor[5] = round(itor[5] * k) if itor[5] is not None else None
+        if dividend:
+            for itor in dividend.row:
+                if itor[0] < day and itor[1] is not None:
+                    itor[1] = round(itor[1] / k, 4)
+        label = f"1 拆 {k}" if k > 1 else f"{round(1 / k)} 合 1"
+        note = f"{day} 起股票{label}，之前的價格、成交量與每股配息已換算成分割後基準"
+        price.note = f"{price.note}；{note}" if price.note else note
+        if dividend:
+            dividend.note = f"{dividend.note}；{note}" if dividend.note else note
+    return found
 
 
 def scale_history(ticker, nav):
@@ -159,6 +192,7 @@ def price_section(data):
     last = row[-1]
     year = close[-250:]
     line = [f"## 行情（{data['price'].title}）", "",
+            f"- 附註：{data['price'].note}" if data["price"].note else None,
             f"- 最新收盤：{fmt(last[4])} 元（{last[0]}）",
             f"- 近 52 週：最高 {fmt(max(year))}、最低 {fmt(min(year))}，現價位於區間 "
             f"{(last[4] - min(year)) / (max(year) - min(year)) * 100:.0f}% 處" if max(year) > min(year) else None,

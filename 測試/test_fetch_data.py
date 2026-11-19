@@ -103,6 +103,28 @@ class FetchDataTest(unittest.TestCase):
                 fetch_data.etf("9999")
 
 
+class SplitTest(unittest.TestCase):
+    def test_adjust_split_restates_earlier_rows(self):
+        import collect
+        price = source.Dataset("price", "p", [])
+        price.row = [["2025-06-09", 190, 191, 188, 189.0, 1000], ["2025-06-10", 188, 189, 187, 188.65, 1000],
+                     ["2025-06-18", 47, 48, 47, 47.57, 4000]]
+        dividend = source.Dataset("dividend", "d", [])
+        dividend.row = [["2025-01-20", 2.7, "除息"], ["2025-07-21", 0.36, "除息"]]
+        self.assertEqual(collect.adjust_split(price, dividend), [("2025-06-18", 4)])
+        self.assertAlmostEqual(price.row[1][4], 47.1625)
+        self.assertEqual(price.row[1][5], 4000)
+        self.assertEqual(price.row[2][4], 47.57)
+        self.assertEqual([r[1] for r in dividend.row], [0.675, 0.36])
+        self.assertIn("1 拆 4", price.note)
+
+    def test_normal_limit_move_is_not_split(self):
+        import collect
+        price = source.Dataset("price", "p", [])
+        price.row = [["2026-11-05", 1, 1, 1, 44.0, 1], ["2026-11-06", 1, 1, 1, 39.6, 1]]
+        self.assertEqual(collect.adjust_split(price), [])
+
+
 class FetchMarketTest(unittest.TestCase):
     def setUp(self):
         source._memory.clear()
