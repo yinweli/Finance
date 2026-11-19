@@ -9,7 +9,7 @@ import time
 from datetime import date, datetime, timedelta, timezone
 from html import unescape
 from pathlib import Path
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlsplit
 from urllib.request import Request, urlopen
 
@@ -45,7 +45,7 @@ def fetch(url, form=None, encoding="utf-8"):
         return _cache[key]
     host = urlsplit(url).hostname
     body = urlencode(form).encode() if form else None
-    # 觀測站尖峰時偶爾回 5xx，間隔後重試；其他錯誤直接回報。
+    # 觀測站尖峰時偶爾回 5xx 或連線逾時，間隔後重試；其他錯誤直接回報。
     for attempt in range(3):
         wait = _last.get(host, -PAUSE) + PAUSE * (1 + 3 * attempt) - time.monotonic()
         if wait > 0:
@@ -59,6 +59,9 @@ def fetch(url, form=None, encoding="utf-8"):
                 text = ""
                 break
             if error.code < 500 or attempt == 2:
+                raise
+        except (URLError, TimeoutError):
+            if attempt == 2:
                 raise
         finally:
             _last[host] = time.monotonic()
@@ -109,7 +112,8 @@ def previous_month(month):
 class Summary:
     def __init__(self, work, command, ticker):
         self.work = Path(work)
-        self.name = f"{command}-{'_'.join(ticker)}"
+        # 代號多時串接全部會超過 Windows 路徑長度上限，改用首檔代號加檔數
+        self.name = f"{command}-{'_'.join(ticker) if len(ticker) <= 3 else f'{ticker[0]}-{len(ticker)}檔'}"
         self.prefix = "" if len(ticker) == 1 else "{}_"
         self.source, self.input, self.formula, self.missing = {}, {}, {}, []
         self.evidence, self.table = {}, {}
@@ -138,6 +142,12 @@ class Summary:
         for key, evidence in self.evidence.items():
             path = self.work / "來源" / f"{key}.json"
             path.parent.mkdir(parents=True, exist_ok=True)
+            # 同一來源可能分次抓取不同標的（例如先抓 50 檔、再補金控），保留舊檔中本次未抓到的列
+            if path.exists():
+                old = json.loads(path.read_text(encoding="utf-8"))
+                if old.get("fields") == evidence["fields"]:
+                    fresh = {row[0] for row in evidence["rows"]}
+                    evidence = {**evidence, "rows": [row for row in old["rows"] if row[0] not in fresh] + evidence["rows"]}
             path.write_text(json.dumps({**evidence, "fetched_at": fetched}, ensure_ascii=False, indent=1),
                             encoding="utf-8")
         path = self.work / "抓取" / f"{self.name}.json"
@@ -261,10 +271,17 @@ def parse_statement(html):
 def statement(typek, year, season):
     form = {"encodeURIComponent": 1, "step": 1, "firstin": 1, "off": 1, "isQuery": "Y",
             "TYPEK": typek, "year": year - 1911, "season": f"{season:02d}"}
-    html = fetch(f"{MOPS}/mops/web/ajax_t163sb04", form)
-    if "查詢過於頻繁" in html or "因為安全性考量" in html:
-        raise ValueError("公開資訊觀測站暫時拒絕查詢，請稍後再試")
-    return parse_statement(html)
+    url = f"{MOPS}/mops/web/ajax_t163sb04"
+    for attempt in range(2):
+        html = fetch(url, form)
+        if "查詢過於頻繁" in html or "因為安全性考量" in html:
+            raise ValueError("公開資訊觀測站暫時拒絕查詢，請稍後再試")
+        row = parse_statement(html)
+        if row:
+            return row
+        # 觀測站偶爾對已公告的季度回空白頁，清除快取重試一次，避免整季被誤判為未公告
+        _cache.pop((url, json.dumps(form, sort_keys=True)), None)
+    return row
 
 
 _market = {}
@@ -282,8 +299,8 @@ def find_statement(ticker, year, season):
 
 def financial(summary, ticker, quarters, today):
     period = recent_quarter(today, quarters + 2)
-    # 最新一季可能尚未公告，所有標的都查得到才當作最新季。
-    if any(find_statement(itor, *period[-1])[1] is None for itor in ticker):
+    # 最新一季可能尚未公告，全部查不到才捨棄；金控第一、三季公告較晚，部分缺漏改列 missing。
+    if all(find_statement(itor, *period[-1])[1] is None for itor in ticker):
         period = period[:-1]
     period = period[-quarters:]
     if period[0][1] > 1:
@@ -400,7 +417,8 @@ def yuanta(summary, ticker):
                               ("bndvalues", "bond_value", "債券")):
         if total.get(name):
             summary.add_input(label, total[name], "元", day, key, f"{ticker} {text}部位市值", precision=0)
-    note = "元大表列權重，分母為基金淨資產"
+    # 股票與期貨權重合計約 100%，且股票權重合計等於股票市值÷（股票市值＋期貨名目），可知分母不是基金淨資產
+    note = "元大表列權重，分母為股票市值加期貨名目金額，不是基金淨資產"
     for itor in stock:
         code = itor["code"]
         summary.add_input(f"holding_qty_{code}", itor["qty"], "股", day, key, f"{itor['name']} 持股數", precision=0)

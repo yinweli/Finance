@@ -90,6 +90,20 @@ class FetchDataTest(unittest.TestCase):
         self.assertNotIn("revenue_ytd_2026q3", summary.input)
         self.assertEqual(summary.missing, [])
 
+    def test_financial_keeps_quarter_partly_published(self):
+        def statement(typek, year, season):
+            if typek != "otc" or year != 2026 or season not in YTD:
+                return {}
+            row = {"8936": statement_row(season)}
+            return row if season == 3 else row | {"1240": statement_row(season) | {"公司代號": "1240"}}
+
+        summary = fetch_data.Summary(self.work, "financial", ["8936", "1240"])
+        with mock.patch.object(fetch_data, "statement", statement):
+            fetch_data.financial(summary, ["8936", "1240"], 2, date(2026, 11, 19))
+        self.assertIn("8936_revenue_2026q3", summary.formula)
+        self.assertIn("1240_revenue_2026q2", summary.formula)
+        self.assertEqual(summary.missing, ["1240 2026Q3 綜合損益表"])
+
     def test_financial_multiple_ticker_share_source(self):
         def statement(typek, year, season):
             if typek != "otc" or year != 2026 or season not in YTD:
@@ -104,6 +118,20 @@ class FetchDataTest(unittest.TestCase):
         summary.save()
         evidence = json.loads((self.work / "來源" / "mops_is_otc_2026q3.json").read_text(encoding="utf-8"))
         self.assertEqual([itor[0] for itor in evidence["rows"]], ["8936", "1240"])
+
+    def test_save_keeps_rows_from_earlier_run(self):
+        def statement(typek, year, season):
+            if typek != "otc" or year != 2026 or season not in YTD:
+                return {}
+            return {"8936": statement_row(season), "1240": statement_row(season) | {"公司代號": "1240"}}
+
+        with mock.patch.object(fetch_data, "statement", statement):
+            for ticker in (["8936", "1240"], ["1240"]):
+                summary = fetch_data.Summary(self.work, "financial", ticker)
+                fetch_data.financial(summary, ticker, 1, date(2026, 11, 19))
+                summary.save()
+        evidence = json.loads((self.work / "來源" / "mops_is_otc_2026q3.json").read_text(encoding="utf-8"))
+        self.assertEqual(sorted(itor[0] for itor in evidence["rows"]), ["1240", "8936"])
 
     def test_price_uses_last_trading_day_and_previous_month(self):
         page = {
