@@ -280,8 +280,10 @@ def yuanta(ticker):
     nav.add_source(f"元大投信｜{ticker} 申購買回清單", url, day)
     nav.row.append([day.isoformat(), pcf["nav"], pcf["osunit"], pcf["totalav"]])
     weight = data.get("FundWeights") or {}
-    holding = Dataset("holding", f"{ticker} 持股", ["類別", "代號", "名稱", "權重", "數量"], {"權重": "%"},
-                      "元大表列權重的分母為股票市值加期貨名目金額，不是基金淨資產")
+    # 股票 ETF 的權重分母為股票市值加期貨名目金額；債券 ETF 為債券部位
+    note = ("元大表列權重的分母為股票市值加期貨名目金額，不是基金淨資產" if weight.get("StockWeights")
+            else "元大表列權重，分母以發行商公布為準")
+    holding = Dataset("holding", f"{ticker} 持股", ["類別", "代號", "名稱", "權重", "數量"], {"權重": "%"}, note)
     holding.add_source(f"元大投信｜{ticker} 基金持股", url, day)
     for kind, key, qty in (("股票", "StockWeights", "qty"), ("期貨", "FutureWeights", "qty"),
                            ("債券", "BondWeights", "FACE_AMT")):

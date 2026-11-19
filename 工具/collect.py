@@ -194,14 +194,15 @@ def price_section(data):
     line = [f"## 行情（{data['price'].title}）", "",
             f"- 附註：{data['price'].note}" if data["price"].note else None,
             f"- 最新收盤：{fmt(last[4])} 元（{last[0]}）",
-            f"- 近 52 週：最高 {fmt(max(year))}、最低 {fmt(min(year))}，現價位於區間 "
+            f"- {'近 52 週' if len(close) >= 250 else f'上市以來（{row[0][0]} 起，{len(close)} 個交易日）'}："
+            f"最高 {fmt(max(year))}、最低 {fmt(min(year))}，現價位於區間 "
             f"{(last[4] - min(year)) / (max(year) - min(year)) * 100:.0f}% 處" if max(year) > min(year) else None,
             "- 均線：" + "、".join(f"{n} 日 {fmt(mean(close[-n:]))}" for n in (20, 60, 120, 240) if len(close) >= n),
             "- 報酬：" + "、".join(f"{label} {pct(change(close, n))}"
                                 for label, n in (("1 個月", 21), ("3 個月", 63), ("6 個月", 126), ("1 年", 250),
                                                  ("2 年", 500))),
             f"- 成交量：近 20 日均量 {fmt(mean(volume[-20:]), 0)} 張，近 60 日均量 {fmt(mean(volume[-60:]), 0)} 張"]
-    return "\n".join(itor for itor in line if itor != "")
+    return "\n".join(itor for itor in line if itor is not None)
 
 
 def valuation_section(data):
