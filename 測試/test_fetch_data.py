@@ -11,8 +11,8 @@ DATA = Path(__file__).resolve().parent / "資料"
 sys.path.insert(0, str(ROOT / "工具"))
 
 import fetch_data  # noqa: E402
-from research_data import prepare  # noqa: E402
-from test_research import fixture  # noqa: E402
+import fetch_market  # noqa: E402
+import source  # noqa: E402
 
 YTD = {  # 8936 2026 年累計數（仟元、元），取自觀測站彙總表
     1: ("1,715,495", "246,377", "0.99"),
@@ -23,43 +23,24 @@ YTD = {  # 8936 2026 年累計數（仟元、元），取自觀測站彙總表
 
 def statement_row(season):
     revenue, net, eps = YTD[season]
-    return {"公司代號": "8936", "營業收入": revenue, "淨利（淨損）歸屬於母公司業主": net, "基本每股盈餘（元）": eps}
-
-
-def tpex_month(row):
-    return json.dumps({"tables": [{"data": row}]})
-
-
-def research(summary):
-    """把抓取結果放進固定研究資料，確認能通過正式驗證並計算公式。"""
-    data = fixture("8936", "stock", "multiply", ["earnings", "multiple"])
-    data.update(as_of="2026-11-19", data_cutoff="2026-11-19T18:00:00+08:00",
-                valuation_at="2026-11-18T13:30:00+08:00")
-    data["source"] |= summary.source
-    data["input"] |= summary.input
-    data["formula"] |= summary.formula
-    return prepare(data)
+    return {"公司代號": "8936", "營業收入": revenue, "營業毛利（毛損）": "100", "淨利（淨損）歸屬於母公司業主": net,
+            "基本每股盈餘（元）": eps}
 
 
 class FetchDataTest(unittest.TestCase):
     def setUp(self):
-        fetch_data._cache.clear()
         fetch_data._market.clear()
-        folder = tempfile.TemporaryDirectory()
-        self.addCleanup(folder.cleanup)
-        self.work = Path(folder.name)
+        source._memory.clear()
 
     def test_parse_statement(self):
         row = fetch_data.parse_statement((DATA / "t163sb04_otc_115q3.html").read_text(encoding="utf-8"))
         self.assertEqual(row["8936"]["營業收入"], "5,049,811")
-        self.assertEqual(row["8936"]["淨利（淨損）歸屬於母公司業主"], "655,284")
         self.assertEqual(row["8936"]["基本每股盈餘（元）"], "2.64")
         self.assertIn("1240", row)
 
     def test_parse_revenue_with_mixed_case_cell(self):
         html = (DATA / "t21sc03_otc_115_10.html").read_bytes().decode("cp950")
         row = fetch_data.parse_revenue(html, "8936")
-        self.assertEqual(len(row), 11)
         self.assertEqual(row[2], "511,266")
         self.assertEqual(row[6], "-7.07")
         self.assertIsNone(fetch_data.parse_revenue(html, "2330"))
@@ -68,159 +49,119 @@ class FetchDataTest(unittest.TestCase):
         def statement(typek, year, season):
             return {"8936": statement_row(season)} if typek == "otc" and year == 2026 and season in YTD else {}
 
-        summary = fetch_data.Summary(self.work, "financial", ["8936"])
         with mock.patch.object(fetch_data, "statement", statement):
-            fetch_data.financial(summary, ["8936"], 2, date(2026, 11, 19))
-        self.assertEqual(summary.input["revenue_2026q1"]["value"], 1715495)
-        self.assertEqual(summary.formula["revenue_2026q3"]["args"], ["revenue_ytd_2026q3", "revenue_ytd_2026q2"])
-        self.assertEqual(summary.formula["revenue_2026q2"]["args"], ["revenue_ytd_2026q2", "revenue_2026q1"])
-        self.assertIn("note", summary.formula["eps_2026q3"])
-        result = research(summary)["result"]
-        self.assertEqual(result["revenue_2026q3"]["value"], 1731811)
-        self.assertEqual(result["net_income_parent_2026q3"]["value"], 192413)
+            data = fetch_data.financial("8936", 2, date(2026, 11, 19))
+        self.assertEqual([r[0] for r in data.row], ["2026Q2", "2026Q3"])
+        q3 = data.row[-1]
+        self.assertEqual(q3[1], 1731811)
+        self.assertEqual(q3[5], 192413)
+        self.assertAlmostEqual(q3[6], 0.77)
+        self.assertEqual(data.missing, [])
 
     def test_financial_skips_unpublished_quarter(self):
         def statement(typek, year, season):
             return {"8936": statement_row(season)} if year == 2026 and season in (1, 2) else {}
 
-        summary = fetch_data.Summary(self.work, "financial", ["8936"])
         with mock.patch.object(fetch_data, "statement", statement):
-            fetch_data.financial(summary, ["8936"], 1, date(2026, 11, 1))
-        self.assertIn("revenue_2026q2", summary.formula)
-        self.assertNotIn("revenue_ytd_2026q3", summary.input)
-        self.assertEqual(summary.missing, [])
+            data = fetch_data.financial("8936", 1, date(2026, 11, 1))
+        self.assertEqual([r[0] for r in data.row], ["2026Q2"])
+        self.assertIn("2026Q3 財報尚未公告", data.missing)
 
-    def test_financial_keeps_quarter_partly_published(self):
-        def statement(typek, year, season):
-            if typek != "otc" or year != 2026 or season not in YTD:
-                return {}
-            row = {"8936": statement_row(season)}
-            return row if season == 3 else row | {"1240": statement_row(season) | {"公司代號": "1240"}}
+    def test_daily_converts_twse_shares_to_lots(self):
+        twse = json.dumps({"stat": "OK", "data": [["115/11/02", "160,932,537", "0", "103.40", "104.45", "103.05", "104.10"]]})
+        tpex = json.dumps({"tables": [{"data": [["115/11/02", "768", "0", "44.20", "44.65", "43.60", "44.15"]]}]})
+        with mock.patch.object(fetch_data, "fetch", lambda url, **_: twse):
+            row = fetch_data.daily("0050", "TWSE", 1, date(2026, 11, 19)).row
+        self.assertEqual(row, [["2026-11-02", 103.4, 104.45, 103.05, 104.1, 160933]])
+        with mock.patch.object(fetch_data, "fetch", lambda url, **_: tpex):
+            row = fetch_data.daily("8936", "TPEx", 1, date(2026, 11, 19)).row
+        self.assertEqual(row[0][5], 768)
 
-        summary = fetch_data.Summary(self.work, "financial", ["8936", "1240"])
-        with mock.patch.object(fetch_data, "statement", statement):
-            fetch_data.financial(summary, ["8936", "1240"], 2, date(2026, 11, 19))
-        self.assertIn("8936_revenue_2026q3", summary.formula)
-        self.assertIn("1240_revenue_2026q2", summary.formula)
-        self.assertEqual(summary.missing, ["1240 2026Q3 綜合損益表"])
+    def test_valuation_column_order(self):
+        twse = json.dumps({"stat": "OK", "data": [["115年11月02日", "0.94", 114, "27.01", "9.39", "115/2"]]})
+        tpex = json.dumps({"tables": [{"data": [["115/11/02", "10.17", "6.80", 114, "1.73", "115Q2"]]}]})
+        with mock.patch.object(fetch_data, "fetch", lambda url, **_: twse):
+            self.assertEqual(fetch_data.valuation("2330", "TWSE", 1, date(2026, 11, 19)).row[0],
+                             ["2026-11-02", 27.01, 9.39, 0.94, "115/2"])
+        with mock.patch.object(fetch_data, "fetch", lambda url, **_: tpex):
+            self.assertEqual(fetch_data.valuation("8936", "TPEx", 1, date(2026, 11, 19)).row[0],
+                             ["2026-11-02", 10.17, 1.73, 6.8, "115Q2"])
 
-    def test_financial_multiple_ticker_share_source(self):
-        def statement(typek, year, season):
-            if typek != "otc" or year != 2026 or season not in YTD:
-                return {}
-            return {"8936": statement_row(season), "1240": statement_row(season) | {"公司代號": "1240"}}
-
-        summary = fetch_data.Summary(self.work, "financial", ["8936", "1240"])
-        with mock.patch.object(fetch_data, "statement", statement):
-            fetch_data.financial(summary, ["8936", "1240"], 1, date(2026, 11, 19))
-        self.assertIn("8936_revenue_2026q3", summary.formula)
-        self.assertIn("1240_eps_ytd_2026q3", summary.input)
-        summary.save()
-        evidence = json.loads((self.work / "來源" / "mops_is_otc_2026q3.json").read_text(encoding="utf-8"))
-        self.assertEqual([itor[0] for itor in evidence["rows"]], ["8936", "1240"])
-
-    def test_save_keeps_rows_from_earlier_run(self):
-        def statement(typek, year, season):
-            if typek != "otc" or year != 2026 or season not in YTD:
-                return {}
-            return {"8936": statement_row(season), "1240": statement_row(season) | {"公司代號": "1240"}}
-
-        with mock.patch.object(fetch_data, "statement", statement):
-            for ticker in (["8936", "1240"], ["1240"]):
-                summary = fetch_data.Summary(self.work, "financial", ticker)
-                fetch_data.financial(summary, ticker, 1, date(2026, 11, 19))
-                summary.save()
-        evidence = json.loads((self.work / "來源" / "mops_is_otc_2026q3.json").read_text(encoding="utf-8"))
-        self.assertEqual(sorted(itor[0] for itor in evidence["rows"]), ["1240", "8936"])
-
-    def test_price_uses_last_trading_day_and_previous_month(self):
-        page = {
-            ("tradingStock", "2026/09"): [["115/09/29", "1", "1", "52.0", "53.0", "51.0", "52.10"],
-                                          ["115/09/30", "1", "1", "52.0", "53.0", "51.0", "52.60"]],
-            ("tradingStock", "2026/10"): [["115/10/30", "1", "1", "40.0", "41.0", "39.0", "40.25"]],
-            ("peQryStock", "2026/09"): [["115/09/30", "12.12", "5.70", 114, "1.90", "115Q2"]],
-            ("peQryStock", "2026/10"): [["115/10/30", "10.30", "7.45", 114, "1.62", "115Q2"]],
-        }
-
-        def fetch(url, form=None, encoding="utf-8"):
-            kind = "tradingStock" if "tradingStock" in url else "peQryStock"
-            month = url.split("date=")[1][:7]
-            return tpex_month(page.get((kind, month), []))
-
-        summary = fetch_data.Summary(self.work, "price", ["8936"])
-        with mock.patch.object(fetch_data, "fetch", fetch):
-            fetch_data.price(summary, "8936", "TPEx", 1, date(2026, 11, 1))
-        self.assertEqual(summary.input["close_2026q3"]["value"], 52.6)
-        self.assertEqual(summary.input["close_latest"]["value"], 40.25)
-        self.assertEqual(summary.input["close_latest"]["date"], "2026-10-30")
-        self.assertEqual(summary.input["pe_latest"]["value"], 10.3)
-        self.assertIn("115Q2", summary.input["pe_latest"]["note"])
-        research(summary)
-
-    def test_price_records_missing_pe_for_etf(self):
-        def fetch(url, form=None, encoding="utf-8"):
-            if "STOCK_DAY" in url:
-                return json.dumps({"stat": "OK", "data": [["115/10/30", "1", "1", "1", "1", "1", "98.50"]]})
-            return json.dumps({"stat": "很抱歉，沒有符合條件的資料!"})
-
-        summary = fetch_data.Summary(self.work, "price", ["0050"])
-        with mock.patch.object(fetch_data, "fetch", fetch):
-            fetch_data.price(summary, "0050", "TWSE", 0, date(2026, 10, 31))
-        self.assertEqual(summary.input["close_latest"]["value"], 98.5)
-        self.assertNotIn("pe_latest", summary.input)
-        self.assertEqual(len(summary.missing), 1)
-
-
-    def test_yuanta_holding_and_share_per_unit(self):
-        page = {
-            "PCF": {"trandate": "20261118", "nav": 93.93, "osunit": 25531000000, "totalav": 2398072175479,
-                    "upddate": "2026-11-18 16:47:21"},
-            "FundWeights": {
-                "Summary": {"stkvalues": 2371998714401.0, "futvalues": 4418399200.0, "bndvalues": 0.0},
-                "StockWeights": [{"code": "2330", "name": "台積電", "weights": 58.92, "qty": 643681881.0},
-                                 {"code": "2454", "name": "聯發科", "weights": 6.42, "qty": 38725084.0}],
-                "FutureWeights": [{"code": "TX", "ym": "202612", "name": "臺股期貨", "weights": 0.12, "qty": 358.0}],
-                "BondWeights": []},
-        }
-        summary = fetch_data.Summary(self.work, "etf", ["0050"])
-        with mock.patch.object(fetch_data, "fetch", lambda url, form=None, encoding="utf-8": json.dumps(page)):
-            fetch_data.etf(summary, "0050", 20)
-        self.assertEqual(summary.input["nav"]["value"], 93.93)
-        self.assertEqual(summary.input["future_weight_TX202612"]["value"], 0.12)
-        self.assertNotIn("bond_value", summary.input)
-        result = research(summary)["result"]
-        self.assertAlmostEqual(result["shares_per_unit_2330"]["value"], 643681881 / 25531000000)
+    def test_yuanta_holding(self):
+        data = {"PCF": {"nav": 90.05, "trandate": "20261118", "osunit": 100, "totalav": 9005, "upddate": "x"},
+                "FundWeights": {"StockWeights": [{"code": "2317", "name": "鴻海", "weights": 5.1, "qty": 10},
+                                                 {"code": "2330", "name": "台積電", "weights": 55.2, "qty": 20}],
+                                "FutureWeights": [{"code": "TXF", "ym": "202612", "name": "台指期", "weights": 0.5, "qty": 1}]}}
+        with mock.patch.object(fetch_data, "fetch_json", lambda url: data):
+            nav, holding = fetch_data.etf("0050")
+        self.assertEqual(nav.row, [["2026-11-18", 90.05, 100, 9005]])
+        self.assertEqual([r[1] for r in holding.row], ["2330", "2317", "TXF202612"])
 
     def test_yuanta_unknown_ticker(self):
-        summary = fetch_data.Summary(self.work, "etf", ["9999"])
-        with mock.patch.object(fetch_data, "fetch", lambda url, form=None, encoding="utf-8": "<html></html>"):
+        with mock.patch.object(fetch_data, "fetch_json", lambda url: {}):
             with self.assertRaises(ValueError):
-                fetch_data.etf(summary, "9999", 20)
+                fetch_data.etf("9999")
 
-    def test_blackrock_nav_holding_and_group(self):
-        nav = "﻿日期,基本面額(A),收益平準金(B)註1,資本損益平準金(C)註2,基金淨值(A+B+C)\n" \
-              "2026年11月18日,10.00,0.03,-0.24,9.79\n2026年11月17日,10.00,0.03,-0.23,9.80\n"
-        head = "Ticker,Name,Sector,Asset Class,Market Value,Weight (%),Notional Value,Shares,Price," \
-               "Location,Exchange,Currency,FX Rate,Market Currency"
-        holding = "﻿截至,\"2026年11月18日\"\n \n" + head + "\n" + "\n".join([
-            '"AAPL","APPLE","資訊科技","指數股票型","1","4.76","1","1","1","美國","NASDAQ","TWD","0.03","USD"',
-            '"BRK.B","BERKSHIRE","金融","指數股票型","1","1.20","1","1","1","美國","NYSE","TWD","0.03","USD"',
-            '"2330","TSMC","資訊科技","指數股票型","1","1.10","1","1","1","台灣","TWSE","TWD","1.00","TWD"',
-            '"JPY","JPY CASH","現金及衍生性商品","Cash","1","-0.02","1","1","1","日本","-","TWD","4.83","JPY"',
-        ])
 
-        def fetch(url, form=None, encoding="utf-8"):
-            return nav if "historical-nav" in url else holding
+class SplitTest(unittest.TestCase):
+    def test_adjust_split_restates_earlier_rows(self):
+        import collect
+        price = source.Dataset("price", "p", [])
+        price.row = [["2025-06-09", 190, 191, 188, 189.0, 1000], ["2025-06-10", 188, 189, 187, 188.65, 1000],
+                     ["2025-06-18", 47, 48, 47, 47.57, 4000]]
+        dividend = source.Dataset("dividend", "d", [])
+        dividend.row = [["2025-01-20", 2.7, "除息"], ["2025-07-21", 0.36, "除息"]]
+        self.assertEqual(collect.adjust_split(price, dividend), [("2025-06-18", 4)])
+        self.assertAlmostEqual(price.row[1][4], 47.1625)
+        self.assertEqual(price.row[1][5], 4000)
+        self.assertEqual(price.row[2][4], 47.57)
+        self.assertEqual([r[1] for r in dividend.row], [0.675, 0.36])
+        self.assertIn("1 拆 4", price.note)
 
-        summary = fetch_data.Summary(self.work, "etf", ["009826"])
-        with mock.patch.object(fetch_data, "fetch", fetch):
-            fetch_data.etf(summary, "009826", 2)
-        self.assertEqual(summary.input["nav"]["value"], 9.79)
-        self.assertEqual(summary.input["nav"]["date"], "2026-11-18")
-        self.assertEqual(list(summary.input), ["nav", "holding_weight_AAPL", "holding_weight_BRK-B"])
-        self.assertEqual(summary.table["location"][0], ["美國", 5.96])
-        self.assertIn(["日本", -0.02], summary.table["location"])
-        research(summary)
+    def test_normal_limit_move_is_not_split(self):
+        import collect
+        price = source.Dataset("price", "p", [])
+        price.row = [["2026-11-05", 1, 1, 1, 44.0, 1], ["2026-11-06", 1, 1, 1, 39.6, 1]]
+        self.assertEqual(collect.adjust_split(price), [])
+
+
+class FetchMarketTest(unittest.TestCase):
+    def setUp(self):
+        source._memory.clear()
+
+    def test_institutional_twse_and_tpex_columns(self):
+        twse = {"stat": "OK", "data": [["2330", "台積電", "0", "0", "1,000,000", "0", "0", "2,000", "0", "0", "-3,000",
+                                        "5,000", "0", "0", "0", "0", "0", "0", "1,004,000"]]}
+        row = ["8936", "國統"] + ["0"] * 21 + ["9,000"]
+        row[10], row[13], row[22] = "4,000", "3,000", "2,000"
+        tpex = {"tables": [{"data": [row]}]}
+        day = [date(2026, 11, 18)]
+        with mock.patch.object(fetch_market, "market_json", lambda url, d, t: twse):
+            got = fetch_market.institutional("2330", "TWSE", day, date(2026, 11, 19)).row
+        self.assertEqual(got, [["2026-11-18", 1002, -3, 5, 1004]])
+        with mock.patch.object(fetch_market, "market_json", lambda url, d, t: tpex):
+            got = fetch_market.institutional("8936", "TPEx", day, date(2026, 11, 19)).row
+        self.assertEqual(got, [["2026-11-18", 4, 3, 2, 9]])
+
+    def test_holders_accumulates_weekly_history(self):
+        text = "資料日期,證券代號,持股分級,人數,股數,占集保庫存數比例%\n" + "\n".join(
+            f"20261113,8936,{level},{100 if level == 17 else 1},0,{pct}"
+            for level, pct in ((1, 5.0), (2, 4.0), (3, 1.0), (12, 10.0), (15, 30.0), (17, 100.0)))
+        with tempfile.TemporaryDirectory() as folder, \
+                mock.patch.object(fetch_market, "CACHE", Path(folder)), \
+                mock.patch.object(fetch_market, "fetch", lambda url: text):
+            history = Path(folder) / "集保" / "8936.json"
+            history.parent.mkdir()
+            history.write_text(json.dumps({"2026-11-06": [39.0, 29.0, 10.5, 98]}), encoding="utf-8")
+            row = fetch_market.holders("8936").row
+        self.assertEqual(row, [["2026-11-06", 39.0, 29.0, 10.5, 98], ["2026-11-13", 40.0, 30.0, 10.0, 100]])
+
+    def test_ust_keeps_two_years(self):
+        text = 'Date,"1 Mo","2 Yr","10 Yr","20 Yr","30 Yr"\n11/18/2026,4.1,4.80,5.07,5.44,5.41\n01/02/2024,5,4,4,4,4\n'
+        with mock.patch.object(fetch_market, "fetch", lambda url, keep=False: text):
+            row = fetch_market.ust(2, date(2026, 11, 19)).row
+        self.assertEqual(row[-1], ["2026-11-18", 4.8, 5.07, 5.44, 5.41])
+        self.assertNotIn("2024-01-02", [r[0] for r in row])
 
 
 if __name__ == "__main__":

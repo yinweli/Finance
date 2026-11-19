@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{title}}</title>
+<style>
+:root {
+  color-scheme: light;
+  --surface: #fcfcfb; --surface2: #f4f3f0; --line: #e4e2dc;
+  --ink: #1b1b1a; --ink2: #52514e; --ink3: #7a7975;
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a;
+  --up: #d03b3b; --down: #0b8a0b; --accent: #2a78d6;
+  --fair: rgba(42, 120, 214, .14);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --surface: #1a1a19; --surface2: #232322; --line: #383835;
+    --ink: #f0efec; --ink2: #c3c2b7; --ink3: #94938b;
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70;
+    --up: #e66767; --down: #2fb52f; --accent: #3987e5;
+    --fair: rgba(57, 135, 229, .22);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --surface: #1a1a19; --surface2: #232322; --line: #383835;
+  --ink: #f0efec; --ink2: #c3c2b7; --ink3: #94938b;
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70;
+  --up: #e66767; --down: #2fb52f; --accent: #3987e5;
+  --fair: rgba(57, 135, 229, .22);
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--surface); color: var(--ink);
+  font: 16px/1.75 "Noto Sans TC", "Microsoft JhengHei", "PingFang TC", system-ui, sans-serif;
+}
+header.top { padding: 32px 16px 12px; max-width: 960px; margin: 0 auto; }
+header.top h1 { margin: 0; font-size: 1.9rem; line-height: 1.3; }
+header.top .sub { color: var(--ink3); font-size: .9rem; margin-top: 4px; }
+nav.toc {
+  position: sticky; top: 0; z-index: 5; background: var(--surface); border-bottom: 1px solid var(--line);
+  display: flex; gap: 4px; overflow-x: auto; padding: 8px 16px; max-width: 100%;
+}
+nav.toc a {
+  white-space: nowrap; color: var(--ink2); text-decoration: none; font-size: .88rem;
+  padding: 4px 10px; border-radius: 999px;
+}
+nav.toc a:hover { background: var(--surface2); color: var(--ink); }
+main { max-width: 960px; margin: 0 auto; padding: 0 16px 64px; }
+section { padding: 28px 0 8px; border-bottom: 1px solid var(--line); scroll-margin-top: 52px; }
+section:last-child { border-bottom: 0; }
+h2 { font-size: 1.4rem; margin: 0 0 12px; }
+h3 { font-size: 1.1rem; margin: 24px 0 8px; }
+h4 { font-size: 1rem; margin: 16px 0 6px; color: var(--ink2); }
+p, li { color: var(--ink); }
+a { color: var(--accent); word-break: break-all; }
+code { background: var(--surface2); padding: 1px 5px; border-radius: 4px; font-size: .9em; }
+.note { color: var(--ink3); font-size: .9rem; }
+.summary { border: 0; padding: 0 0 8px; }
+.verdict { font-size: 1.15rem; font-weight: 600; margin: 0 0 16px; padding: 14px 16px; background: var(--surface2); border-radius: 10px; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+.tile { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+.tile-label { color: var(--ink3); font-size: .85rem; }
+.tile-value { font-size: 1.5rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.tile-note { color: var(--ink2); font-size: .85rem; }
+.pills { margin: 12px 0 4px; display: flex; gap: 8px; flex-wrap: wrap; }
+.pill { border: 1px solid var(--line); border-radius: 999px; padding: 2px 12px; font-size: .88rem; color: var(--ink2); }
+.up { color: var(--up); font-weight: 600; }
+.down { color: var(--down); font-weight: 600; }
+.flat { color: var(--ink2); }
+.dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: 0; }
+.table-wrap { overflow-x: auto; margin: 12px 0; }
+table { border-collapse: collapse; width: 100%; font-size: .92rem; font-variant-numeric: tabular-nums; }
+th, td { padding: 7px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+th { color: var(--ink2); font-weight: 600; background: var(--surface2); white-space: nowrap; }
+table.scenario td:nth-child(-n+6) { white-space: nowrap; }
+table.events td:nth-child(1), table.events td:nth-child(n+3):nth-child(-n+6) { white-space: nowrap; }
+table.events td:nth-child(2) { min-width: 9em; }
+table.events td:nth-child(7) { min-width: 16em; }
+.charts { display: grid; gap: 16px; margin-top: 16px; }
+figure.chart { margin: 0; border: 1px solid var(--line); border-radius: 10px; padding: 12px 12px 4px; position: relative; overflow-x: auto; }
+figure.chart figcaption { font-weight: 600; font-size: .95rem; color: var(--ink); }
+figure.chart svg { width: 100%; min-width: 540px; height: auto; display: block; overflow: visible; }
+.legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: .82rem; color: var(--ink2); margin: 4px 0; }
+.legend i { display: inline-block; width: 14px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: middle; }
+svg .grid { stroke: var(--line); stroke-width: 1; }
+svg .zero { stroke: var(--ink3); stroke-width: 1; }
+svg .axis { fill: var(--ink3); font-size: 12px; }
+svg .axis.label { fill: var(--ink2); font-size: 13px; }
+svg .value { fill: var(--ink2); font-size: 13px; }
+svg .band { fill: var(--fair); }
+svg .band-label { fill: var(--ink2); font-size: 12px; }
+svg .fair { fill: var(--fair); stroke: var(--s1); stroke-width: 1; }
+svg .divider { stroke: var(--ink3); stroke-dasharray: 3 3; }
+svg .whisker { stroke: var(--ink2); stroke-width: 2; }
+svg .forecast { opacity: .45; }
+svg .hit { fill: transparent; }
+svg .hit:hover { fill: var(--ink); fill-opacity: .05; }
+#tip {
+  position: fixed; pointer-events: none; z-index: 10; background: var(--ink); color: var(--surface);
+  padding: 6px 10px; border-radius: 6px; font-size: .82rem; white-space: pre; display: none; line-height: 1.5;
+}
+footer { max-width: 960px; margin: 0 auto; padding: 16px; color: var(--ink3); font-size: .82rem; }
+@media print { nav.toc { display: none; } figure.chart { break-inside: avoid; } }
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>{{title}}</h1>
+  <div class="sub">{{subtitle}}</div>
+</header>
+<nav class="toc">{{nav}}</nav>
+<main>
+{{body}}
+</main>
+<footer>本報告由 Finance 研究流程自動產生：資料由程式抓取公開資訊，研究草稿由 Codex 撰寫，經 Claude 審查修正。內容僅供個人研究參考，不構成投資建議。</footer>
+<div id="tip"></div>
+{{data}}
+<script>
+(function () {
+  var tip = document.getElementById("tip");
+  document.addEventListener("mousemove", function (e) {
+    var el = e.target.closest ? e.target.closest("[data-tip]") : null;
+    if (!el) { tip.style.display = "none"; return; }
+    tip.textContent = el.getAttribute("data-tip");
+    tip.style.display = "block";
+    var x = e.clientX + 14, y = e.clientY + 14;
+    if (x + tip.offsetWidth > window.innerWidth - 8) x = e.clientX - tip.offsetWidth - 14;
+    if (y + tip.offsetHeight > window.innerHeight - 8) y = e.clientY - tip.offsetHeight - 14;
+    tip.style.left = x + "px"; tip.style.top = y + "px";
+  });
+})();
+</script>
+</body>
+</html>
