@@ -1,6 +1,7 @@
 """依標的類型抓齊研究資料，存成 資料/*.json，並產生給 AI 閱讀的 資料摘要.md。"""
 import argparse
 import json
+import math
 import re
 import statistics
 import sys
@@ -87,6 +88,9 @@ def collect(ticker, work, day, log=print):
     close = data["price"].row[-1] if data["price"].row else None
     if close:
         info.update({"收盤": close[4], "收盤日": close[0]})
+    sigma = volatility([itor[4] for itor in data["price"].row])
+    if sigma:
+        info["年化波動度"] = round(sigma, 1)
     (folder / "標的.json").write_text(json.dumps(info, ensure_ascii=False, indent=1), encoding="utf-8")
     summary = Path(work) / "資料摘要.md"
     summary.write_text(summarize(info, data), encoding="utf-8")
@@ -183,6 +187,15 @@ def quantile(value, q):
     return statistics.quantiles(value, n=4)[q - 1] if len(value) >= 4 else value[len(value) // 2]
 
 
+def volatility(close, days=500):
+    """近 2 年日報酬的年化波動度（%），供 check.py 推算情境的基準機率。資料不足 60 天時回傳 None。"""
+    close = [c for c in close[-days:] if c]
+    if len(close) < 60:
+        return None
+    change = [math.log(b / a) for a, b in zip(close, close[1:])]
+    return statistics.stdev(change) * math.sqrt(250) * 100
+
+
 def price_section(data):
     row = data["price"].row
     if not row:
@@ -201,6 +214,7 @@ def price_section(data):
             "- 報酬：" + "、".join(f"{label} {pct(change(close, n))}"
                                 for label, n in (("1 個月", 21), ("3 個月", 63), ("6 個月", 126), ("1 年", 250),
                                                  ("2 年", 500))),
+            f"- 年化波動度（近 2 年日報酬）：{fmt(volatility(close), 1)}%" if volatility(close) else None,
             f"- 成交量：近 20 日均量 {fmt(mean(volume[-20:]), 0)} 張，近 60 日均量 {fmt(mean(volume[-60:]), 0)} 張"]
     return "\n".join(itor for itor in line if itor is not None)
 

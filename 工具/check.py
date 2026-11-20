@@ -1,9 +1,11 @@
 """解析與檢查 草稿.md／定稿.md，並計算情境報酬。格式見 流程/草稿格式.md。"""
 import argparse
 import json
+import math
 import re
 import sys
 from pathlib import Path
+from statistics import NormalDist
 
 SECTIONS = {
     "個股": ["關鍵數字", "結論", "財報與法說", "籌碼", "市場健康度", "估值", "情境與事件", "風險與重估", "限制", "來源"],
@@ -15,6 +17,12 @@ SECTIONS = {
 HORIZON = ("6個月", "12個月")
 CASE = ("保守", "中性", "樂觀")
 RATING = ("偏多", "中性", "偏空")
+YEAR = {"6個月": 0.5, "12個月": 1.0}
+# 情境機率和歷史波動推算的基準差超過這個百分點，就要在「機率說明」寫明理由
+DEVIATION = 15
+# 合理區間算式「EPS 3.20 元 × 本益比 12.5～16.3 倍」驗算時容許的誤差
+TOLERANCE = 0.03
+FORMULA = re.compile(r"EPS\s*([\d.]+)\s*元?\s*[×xX*]\s*(?:本益比\s*)?([\d.]+)\s*[～~]\s*([\d.]+)\s*倍")
 
 
 class DraftError(ValueError):
@@ -132,9 +140,68 @@ def check_key(key, profile=None):
     need(len(key["重估條件"]) >= 3, "重估條件至少 3 項")
     for itor in key["重估條件"]:
         need(all(itor.get(n) for n in ("指標", "門檻", "動作")), f"重估條件「{itor.get('指標')}」缺少指標、門檻或動作")
-    need(isinstance(key["資料缺口"], list), "資料缺口必須是陣列")
+    if need(isinstance(key["資料缺口"], list), "資料缺口必須是陣列"):
+        for itor in key["資料缺口"]:
+            need(isinstance(itor, dict) and itor.get("項目") and itor.get("影響")
+                 and isinstance(itor.get("可查"), bool) and isinstance(itor.get("影響結論"), bool),
+                 f"資料缺口「{itor.get('項目') if isinstance(itor, dict) else itor}」必須有項目、影響，以及 true／false 的可查、影響結論")
     need(bool(str(key["結論"]).strip()), "結論不可空白")
+    if not problem:
+        problem += check_formula(key) + check_chance(key, profile)
     return problem
+
+
+def check_formula(key):
+    """合理區間的方法寫成「EPS × 本益比區間」時，驗算乘積是否等於低、高價。"""
+    fair = key["合理區間"]
+    found = FORMULA.search(str(fair.get("方法", "")))
+    if not found:
+        return []
+    eps, low, high = (float(v) for v in found.groups())
+    problem = []
+    for name, multiple in (("低", low), ("高", high)):
+        value = eps * multiple
+        if abs(value - fair[name]) > fair[name] * TOLERANCE:
+            problem.append(f"合理區間的{name} {fair[name]} 和方法算式 EPS {eps} × {multiple} 倍 = {value:.2f} 不符")
+    return problem
+
+
+def base_chance(key, profile):
+    """以年化波動度、零漂移的對數常態分布，推算股價落在三情境價格帶的基準機率（%）。
+
+    價格帶以相鄰情境價格的中點分界；期間配息先從現價扣除，因為情境價格是除息後市價。
+    沒有波動度資料時回傳 None。
+    """
+    sigma = (profile or {}).get("年化波動度")
+    if not is_number(sigma) or sigma <= 0:
+        return None
+    result = {}
+    for horizon, year in YEAR.items():
+        case = key["情境"][horizon]
+        forward = key["現價"]["價格"] - (key.get("配息", {}).get(horizon, 0) or 0)
+        if forward <= 0:
+            return None
+        spread = sigma / 100 * math.sqrt(year)
+
+        def below(level):
+            return NormalDist().cdf((math.log(level / forward) + spread * spread / 2) / spread)
+
+        low = below((case["保守"]["價格"] + case["中性"]["價格"]) / 2)
+        high = 1 - below((case["中性"]["價格"] + case["樂觀"]["價格"]) / 2)
+        result[horizon] = {"保守": low * 100, "中性": (1 - low - high) * 100, "樂觀": high * 100}
+    return result
+
+
+def check_chance(key, profile):
+    base = base_chance(key, profile)
+    if not base or str(key.get("機率說明", "")).strip():
+        return []
+    gap = [(h, n, key["情境"][h][n]["機率"], base[h][n]) for h in HORIZON for n in CASE
+           if abs(key["情境"][h][n]["機率"] - base[h][n]) > DEVIATION]
+    if not gap:
+        return []
+    detail = "、".join(f"{h}{n} {a}%（基準 {b:.0f}%）" for h, n, a, b in gap)
+    return [f"情境機率和歷史波動推算的基準差超過 {DEVIATION} 個百分點：{detail}。請在關鍵數字加上「機率說明」寫明理由，或調整機率"]
 
 
 def check_text(text, profile=None):

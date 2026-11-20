@@ -50,14 +50,14 @@ def run(cmd, prompt, cwd, timeout):
     return done
 
 
-def claude(prompt, work, step, tools=CLAUDE_TOOLS, timeout=1800):
-    """在工作夾執行一次 claude -p，回傳最後的回覆文字。"""
+def claude(prompt, work, step, tools=CLAUDE_TOOLS, timeout=1800, model=None):
+    """在工作夾執行一次 claude -p，回傳最後的回覆文字。model 為 None 時使用 Claude Code 的預設模型。"""
     allow = [t for t in tools if t not in ("Write", "Edit")]
     allow += [f"{t}(./**)" for t in tools if t in ("Write", "Edit")]
     cmd = [program("claude"), "-p", "--output-format", "json", "--permission-mode", "dontAsk",
            "--tools", ",".join(tools), "--allowedTools", *allow,
            "--setting-sources", "project", "--strict-mcp-config", "--disable-slash-commands",
-           "--no-session-persistence"]
+           "--no-session-persistence"] + (["--model", model] if model else [])
     save_log(work, step, "claude-prompt.md", prompt)
     done = run(cmd, prompt, work, timeout)
     save_log(work, step, "claude-output.json", done.stdout + ("\n--- stderr ---\n" + done.stderr if done.stderr else ""))

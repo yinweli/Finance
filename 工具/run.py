@@ -6,6 +6,7 @@ import argparse
 import json
 import re
 import shutil
+import subprocess
 import sys
 import time
 from datetime import date
@@ -16,11 +17,15 @@ import check
 import collect
 import readme
 import render
+import settle
 from source import ROOT, today as now
 
 WORK = ROOT / ".tmp" / "工作"
 STEPS = ("抓取", "補充", "草稿", "審查", "發布")
 METHOD = {"個股": "方法/個股.md", "股票ETF": "方法/股票ETF.md", "債券ETF": "方法/債券ETF.md"}
+# 補充與補查以搜尋整理為主，用較省額度的模型；審查維持 Claude Code 的預設模型
+SEARCH_MODEL = "sonnet"
+GROUND = "精確數字一律以資料摘要與 資料/*.json 為準；不同來源的數字衝突時寫出差異，不要自行調和出一個數字。"
 
 
 class Paused(Exception):
@@ -112,7 +117,22 @@ def step_fetch(job):
                 f"{n} {key['情境'][horizon][n]['價格']}（{key['情境'][horizon][n]['機率']}%）" for n in check.CASE))
         lines += ["", "## 重估條件"] + [f"- {r['指標']}：{r['門檻']} → {r['動作']}" for r in key["重估條件"]]
         lines += ["", "## 事件"] + [f"- {e['日期']} {e['名稱']}（{e['狀態']}，{e['機率']}%，影響 {e['影響']}%）" for e in key["事件"]]
+        lines += ["", "## 期中進度"] + progress(key, job.profile)
+        past = settle.history(job.ticker)
+        if past:
+            lines += ["", "## 過去預測的結算結果"] + [f"- {itor}" for itor in past]
         job.path("上次摘要.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def progress(key, info):
+    """上次研究至今的股價變化，以及目前價格落在上次 6 個月情境的哪一段。"""
+    price, last = info.get("收盤"), key["現價"]["價格"]
+    if not price:
+        return ["- 無最新收盤，無法比較"]
+    case = key["情境"]["6個月"]
+    return [f"- 上次研究至今股價 {(price / last - 1) * 100:+.1f}%（{last} → {price}，{info.get('收盤日')}）",
+            f"- 目前價格落在上次 6 個月情境的{settle.band(case, price)}區段"
+            f"（保守 {case['保守']['價格']}、中性 {case['中性']['價格']}、樂觀 {case['樂觀']['價格']}）"]
 
 
 def step_supplement(job):
@@ -120,7 +140,7 @@ def step_supplement(job):
     prompt = (f"你是 Finance 研究流程的「資料補充者」。依 {ROOT / '流程' / '補充資料.md'} 的規則，"
               f"替下列標的補充腳本抓不到的資料，寫入工作夾的 `補充資料.md`。\n\n{job.doc()}"
               f"- 腳本資料摘要：{job.path('資料摘要.md')}\n\n完成後只回覆 done。")
-    agents.claude(prompt, job.work, "補充")
+    agents.claude(prompt, job.work, "補充", model=SEARCH_MODEL)
     if not job.path("補充資料.md").exists():
         raise agents.AgentError("Claude 沒有產生 補充資料.md")
 
@@ -146,7 +166,8 @@ def step_draft(job):
               f"- 腳本資料摘要：{job.path('資料摘要.md')}；細節可讀 {job.path('資料')} 內的 JSON\n"
               f"- 補充資料（Claude 查證的法說、新聞、規則）：{job.path('補充資料.md')}\n\n"
               "規則：\n"
-              "1. 只能使用上列文件與工作夾內的資料，不要上網，也不要載入任何 skill。資料不足時寫進關鍵數字的「資料缺口」。\n"
+              "1. 只能使用上列文件與工作夾內的資料，不要上網，也不要載入任何 skill。資料不足時寫進關鍵數字的「資料缺口」。"
+              + GROUND + "\n"
               f"2. 關鍵數字的「現價」必須是 {info.get('收盤')}，日期 {info.get('收盤日')}。\n"
               "3. 寫完後執行 `python -X utf8 -B " + str(ROOT / "工具" / "check.py") + " 草稿.md` 自我檢查，修到通過為止。\n"
               "4. 完成後只回覆 done。")
@@ -159,14 +180,15 @@ def step_draft(job):
         problem, key = draft_problem(job)
         if problem:
             raise Manual("草稿修正後仍未通過檢查：" + "；".join(problem[:5]))
-    gap = key.get("資料缺口") or []
+    # 只有查得到、而且會影響結論的缺口才值得再查一次；其餘只寫進報告的限制
+    gap = [g for g in key.get("資料缺口") or [] if g.get("可查") and g.get("影響結論")]
     if gap and not job.state.get("已補查"):
-        log(f"{job.ticker}：草稿列出 {len(gap)} 項資料缺口，Claude 補查一次")
+        log(f"{job.ticker}：草稿列出 {len(gap)} 項可查且影響結論的資料缺口，Claude 補查一次")
         prompt = (f"你是 Finance 研究流程的「資料補充者」。研究者在草稿中列出下列資料缺口，請依 {ROOT / '流程' / '補充資料.md'} "
                   "的規則查證，把結果加在工作夾 `補充資料.md` 最後的「## 補查」章節。查不到的項目寫明查過哪些來源。\n\n"
                   + job.doc() + "\n資料缺口：\n" + "\n".join(f"- {g.get('項目')}：{g.get('影響')}" for g in gap)
                   + "\n\n完成後只回覆 done。")
-        agents.claude(prompt, job.work, "補查")
+        agents.claude(prompt, job.work, "補查", model=SEARCH_MODEL)
         job.state["已補查"] = True
         job.save()
         codex_draft(job, "Claude 已依資料缺口補查，結果在 補充資料.md 的「## 補查」章節。請據以更新 草稿.md："
@@ -174,6 +196,9 @@ def step_draft(job):
         problem, key = draft_problem(job)
         if problem:
             raise Manual("補查後的草稿未通過檢查：" + "；".join(problem[:5]))
+
+
+BLOCK = re.compile(r"[［\[]阻擋[］\]]")
 
 
 def review_verdict(job):
@@ -186,13 +211,17 @@ def step_review(job):
     for round_ in (1, 2):
         log(f"{job.ticker}：Claude 審查（第 {round_} 輪）")
         prompt = (f"你是 Finance 研究流程的「審查者」。依 {ROOT / '流程' / '審查清單.md'} 審查工作夾的 `草稿.md`，"
-                  f"寫出 `審查.md` 與 `定稿.md`。\n\n{job.doc()}"
+                  f"只寫出 `審查.md`，不要產出定稿：研究者會依你的意見修正。\n\n{job.doc()}"
                   f"- 草稿格式：{ROOT / '流程' / '草稿格式.md'}\n"
-                  f"- 這是第 {round_} 輪審查。" + ("第 2 輪不可再退回，必須自行修正並產出定稿。\n" if round_ == 2 else "\n")
-                  + "\n完成後只回覆「通過」或「退回」。")
+                  f"- 這是第 {round_} 輪審查。" + ("第 2 輪不可再退回。\n" if round_ == 2 else "\n")
+                  + GROUND + "\n\n完成後只回覆「通過」或「退回」。")
         agents.claude(prompt, job.work, f"審查{round_}")
         verdict = review_verdict(job)
-        if verdict == "退回" and round_ == 1:
+        if verdict is None:
+            raise Manual("審查.md 沒有寫出「結論：通過」或「結論：退回」")
+        if verdict == "退回":
+            if round_ == 2:
+                raise Manual("第 2 輪審查仍退回，需要人工判斷")
             log(f"{job.ticker}：審查退回，Codex 依審查意見修正")
             codex_draft(job, "審查者退回草稿，意見在工作夾的 審查.md。請逐項修正 草稿.md，並在 審查.md 每則阻擋意見下補一行"
                         "「回覆：已修正」或不修正的理由。修正後執行 check.py 自我檢查，完成後只回覆 done。", "草稿退修")
@@ -200,23 +229,45 @@ def step_review(job):
             if problem:
                 raise Manual("退修後的草稿未通過檢查：" + "；".join(problem[:5]))
             continue
-        if verdict is None:
-            raise Manual("審查.md 沒有寫出「結論：通過」或「結論：退回」")
-        if verdict == "退回":
-            raise Manual("第 2 輪審查仍退回，需要人工判斷")
         break
+    log(f"{job.ticker}：Codex 依審查意見產出定稿")
+    codex_draft(job, "審查者的意見在工作夾的 審查.md。請以 草稿.md 為底稿，處理所有「阻擋」與「應修」意見，「建議」可斟酌採用，"
+                "另存為 定稿.md，草稿.md 保持不變。在 審查.md 每則阻擋與應修意見下補一行「回覆：已修正」或不修正的理由。"
+                "存檔後執行 `python -X utf8 -B " + str(ROOT / "工具" / "check.py") + " 定稿.md` 自我檢查，"
+                "修到通過為止，完成後只回覆 done。", "定稿")
     problem, _ = draft_problem(job, "定稿.md")
     if problem:
-        log(f"{job.ticker}：定稿未通過檢查，Claude 修正一次")
-        agents.claude("工作夾的 定稿.md 未通過格式檢查，請只修正下列問題，不要改動其他內容。格式見 "
-                      f"{ROOT / '流程' / '草稿格式.md'}。完成後只回覆 done。\n" + "\n".join(f"- {p}" for p in problem),
-                      job.work, "定稿修正", tools=("Read", "Glob", "Grep", "Write", "Edit"))
+        log(f"{job.ticker}：定稿未通過檢查，退回 Codex 修正一次")
+        codex_draft(job, "定稿.md 未通過格式檢查，請只修正下列問題後覆寫 定稿.md，完成後只回覆 done：\n"
+                    + "\n".join(f"- {p}" for p in problem), "定稿修正")
         problem, _ = draft_problem(job, "定稿.md")
         if problem:
             raise Manual("定稿修正後仍未通過檢查：" + "；".join(problem[:5]))
+    if BLOCK.search(job.path("審查.md").read_text(encoding="utf-8")):
+        # 只有阻擋級意見需要審查者確認，其餘交給研究者處理，省下一輪完整審查
+        log(f"{job.ticker}：Claude 複核阻擋意見")
+        agents.claude("你是 Finance 研究流程的「審查者」。你在 審查.md 提出的阻擋意見，研究者已修正並存為 定稿.md。"
+                      "請只核對每則阻擋意見是否確實修正，只讀 審查.md、定稿.md 與核對需要的資料，不要重新審查全文。"
+                      "未修正的直接修改 定稿.md，並在 審查.md 最後加上「## 複核」章節逐則記錄結果。完成後只回覆 done。",
+                      job.work, "複核", tools=("Read", "Glob", "Grep", "Write", "Edit"))
+        problem, _ = draft_problem(job, "定稿.md")
+        if problem:
+            raise Manual("複核後的定稿未通過檢查：" + "；".join(problem[:5]))
+
+
+def run_setting():
+    """這次研究使用的程式版本與模型，寫進報告，日後才能依方法版本比較校準結果。"""
+    try:
+        commit = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=ROOT, capture_output=True, text=True).stdout.strip()
+    except OSError:
+        commit = ""
+    option = agents.codex_config()
+    return {"程式版本": commit or "未知", "Claude 補充模型": SEARCH_MODEL, "Claude 審查模型": "Claude Code 預設",
+            "Codex 模型": option[option.index("-m") + 1] if "-m" in option else "Codex 預設"}
 
 
 def step_publish(job):
+    job.path("執行設定.json").write_text(json.dumps(run_setting(), ensure_ascii=False, indent=1), encoding="utf-8")
     target = render.render(job.path("定稿.md"), job.work)
     job.state["報告"] = rel(target)
     log(f"{job.ticker}：已發布 {job.state['報告']}")
@@ -285,6 +336,10 @@ def main():
     for name in ("claude", "codex"):
         if not shutil.which(name):
             sys.exit(f"找不到 {name} 指令")
+    try:
+        settle.settle(arg.date, log=log)
+    except Exception as error:  # 結算只是附加資訊，失敗不影響研究
+        log(f"結算舊報告失敗：{error}")
     jobs, code = [], 0
     for ticker in arg.ticker:
         job = Job(ticker, arg.date, arg.restart)
