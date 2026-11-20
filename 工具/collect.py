@@ -15,6 +15,7 @@ from source import CACHE, ROOT, Dataset, today as now
 
 TYPES = ("個股", "股票ETF", "債券ETF")
 MONTHS = 26  # 行情與指數抓 26 個月，才足以計算 2 年報酬
+VALUATION_MONTHS = 62  # 本益比歷史抓 5 年：業界以 3～5 年或完整景氣循環判斷合理倍數，2 年容易把近期評價當常態
 
 
 def profile(ticker):
@@ -63,7 +64,7 @@ def collect(ticker, work, day, log=print):
     if exchange == "TPEx":
         group["櫃買中心"].append(("otc_index", lambda: fetch_market.otc_index(MONTHS, day)))
     if stock:
-        venue += [("valuation", lambda: fetch_data.valuation(ticker, exchange, MONTHS, day)),
+        venue += [("valuation", lambda: fetch_data.valuation(ticker, exchange, VALUATION_MONTHS, day)),
                   ("institutional", lambda: fetch_market.institutional(ticker, exchange, days60, day)),
                   ("margin", lambda: fetch_market.margin(ticker, exchange, days60, day)),
                   ("foreign_ratio", lambda: fetch_market.foreign_ratio(ticker, exchange, calendar, 24))]
@@ -196,6 +197,17 @@ def volatility(close, days=500):
     return statistics.stdev(change) * math.sqrt(250) * 100
 
 
+def beta(close, index, step=5):
+    """近 2 年週報酬相對大盤的 Beta，供股權成本檢查。close、index 為（日期, 收盤）清單；不足 52 週時回傳 None。"""
+    level = dict(index)
+    pair = [(c, level[d]) for d, c in close if c and level.get(d)][::-1][::step][::-1]
+    if len(pair) < 53:
+        return None, 0
+    stock = [math.log(b[0] / a[0]) for a, b in zip(pair, pair[1:])]
+    market = [math.log(b[1] / a[1]) for a, b in zip(pair, pair[1:])]
+    return statistics.covariance(stock, market) / statistics.variance(market), len(stock)
+
+
 def price_section(data):
     row = data["price"].row
     if not row:
@@ -204,6 +216,8 @@ def price_section(data):
     volume = [itor[5] for itor in row]
     last = row[-1]
     year = close[-250:]
+    bench = data.get("otc_index") or data.get("taiex")
+    slope, weeks = beta([(itor[0], itor[4]) for itor in row[-500:]], [(itor[0], itor[1]) for itor in bench.row])         if bench and bench.row else (None, 0)
     line = [f"## 行情（{data['price'].title}）", "",
             f"- 附註：{data['price'].note}" if data["price"].note else None,
             f"- 最新收盤：{fmt(last[4])} 元（{last[0]}）",
@@ -215,6 +229,7 @@ def price_section(data):
                                 for label, n in (("1 個月", 21), ("3 個月", 63), ("6 個月", 126), ("1 年", 250),
                                                  ("2 年", 500))),
             f"- 年化波動度（近 2 年日報酬）：{fmt(volatility(close), 1)}%" if volatility(close) else None,
+            f"- Beta（近 2 年 {weeks} 週報酬，相對{'櫃買指數' if data.get('otc_index') else '加權指數'}）：{fmt(slope)}" if slope is not None else None,
             f"- 成交量：近 20 日均量 {fmt(mean(volume[-20:]), 0)} 張，近 60 日均量 {fmt(mean(volume[-60:]), 0)} 張"]
     return "\n".join(itor for itor in line if itor is not None)
 
@@ -223,7 +238,8 @@ def valuation_section(data):
     if "valuation" not in data or not data["valuation"].row:
         return ""
     row = data["valuation"].row
-    line = ["## 估值（交易所公布，近 2 年）", ""]
+    span = f"{row[0][0]}～{row[-1][0]}"
+    line = [f"## 估值（交易所公布，{span}，最長 5 年）", ""]
     head = ["指標", "最新", "25 百分位", "中位數", "75 百分位", "最低", "最高"]
     body = []
     for index, name in ((1, "本益比"), (2, "股價淨值比"), (3, "殖利率 %")):
