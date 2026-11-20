@@ -6,6 +6,23 @@
 - 6 個月、12 個月後保守、中性、樂觀三種情境的價格與機率，以及機率加權的期望價
 - 會影響估值的市場消息與事件，各自附上機率和對合理價的影響
 
+## 最新報告
+
+每個標的列出最新 3 份報告，點開即是 GitHub Pages 上的網頁版。完整清單見 [報告/](報告/)。
+
+<!-- 最新報告開始：由 工具/readme.py 產生，請勿手動修改 -->
+
+| 標的 | 最新報告 |
+| --- | --- |
+| 0050 元大台灣卓越50 | [2026-11-20](https://yinweli.github.io/Finance/0050/2026-11-20.html)、[2026-11-19](https://yinweli.github.io/Finance/0050/2026-11-19.html) |
+| 00679B 元大美債20年 | [2026-11-20](https://yinweli.github.io/Finance/00679B/2026-11-20.html) |
+| 00713 元大台灣高息低波 | [2026-11-20](https://yinweli.github.io/Finance/00713/2026-11-20.html) |
+| 009826 貝萊德世界股票 | [2026-11-20](https://yinweli.github.io/Finance/009826/2026-11-20.html)、[2026-11-19](https://yinweli.github.io/Finance/009826/2026-11-19.html) |
+| 7584 樂意傳播 | [2026-11-20](https://yinweli.github.io/Finance/7584/2026-11-20.html) |
+| 8936 國統國際 | [2026-11-20](https://yinweli.github.io/Finance/8936/2026-11-20.html) |
+
+<!-- 最新報告結束 -->
+
 ## 使用方式
 
 在專案資料夾開啟 Claude Code，直接說：
@@ -16,7 +33,17 @@
 繼續研究 0050 00713     ← 額度不足暫停後接續
 ```
 
-接下來不需要切換到 Codex，也不需要再下指令。完成後 Claude 會回報每一檔的結論與報告位置：`報告/<代號>/<研究日>.html`，可以直接用瀏覽器離線開啟。
+接下來不需要切換到 Codex，也不需要再下指令。完成後 Claude 會回報每一檔的結論與報告位置：`報告/<代號>/<研究日>.html`，可以直接用瀏覽器離線開啟。發布報告時，腳本也會一併更新上方的「最新報告」清單。
+
+## 網頁發布
+
+`報告/` 推送到 `dev` 後，GitHub Actions（[`.github/workflows/pages.yml`](.github/workflows/pages.yml)）會自動發布到 GitHub Pages，網址為 `https://yinweli.github.io/Finance/<代號>/<研究日>.html`。網站是公開的，報告依規則不寫個人持倉或帳戶資訊。
+
+需要手動重建清單時執行：
+
+```powershell
+python -X utf8 -B 工具/readme.py
+```
 
 也可以不經過 Claude，直接在終端機執行：
 
@@ -44,7 +71,7 @@ python -X utf8 -B 工具/run.py 8936
 | [流程/](流程/) | [研究流程](流程/研究流程.md)、[草稿格式](流程/草稿格式.md)、[補充資料](流程/補充資料.md)、[審查清單](流程/審查清單.md) |
 | [方法/](方法/) | 依類型的研究方法：[個股](方法/個股.md)、[股票 ETF](方法/股票ETF.md)、[債券 ETF](方法/債券ETF.md) |
 | [標的/](標的/) | 各標的的研究重點，新增標的時在這裡加一份文件 |
-| [工具/](工具/) | 抓取（`collect.py`、`fetch_data.py`、`fetch_market.py`）、檢查（`check.py`）、報告（`render.py`）與串接（`run.py`、`agents.py`） |
+| [工具/](工具/) | 抓取（`collect.py`、`fetch_data.py`、`fetch_market.py`）、檢查（`check.py`）、報告（`render.py`）、README 清單（`readme.py`）與串接（`run.py`、`agents.py`） |
 | [版型/](版型/) | 報告的版面與配色 |
 | [報告/](報告/) | 已發布的報告，每個標的一個資料夾 |
 | [測試/](測試/) | 使用固定資料的單元測試：`python -X utf8 -B -m unittest discover -s 測試 -v` |
