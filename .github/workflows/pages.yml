@@ -1,0 +1,32 @@
+# 把 報告/ 發布到 GitHub Pages：https://yinweli.github.io/Finance/<代號>/<研究日>.html
+name: 發布報告
+
+on:
+  push:
+    branches: [dev]
+    paths: ["報告/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: 報告
+      - id: deployment
+        uses: actions/deploy-pages@v4
