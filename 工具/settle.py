@@ -1,4 +1,6 @@
-"""結算到期的舊報告：比對研究日 6／12 個月後的實際收盤落在哪個情境，累積校準統計。
+"""結算到期的舊報告：比對研究日 12 個月後的實際收盤落在哪個情境，累積校準統計。
+
+舊報告另有 6 個月預測，仍照常結算，統計時和 12 個月分開。
 
 結算用目標日（含）之後第一個收盤價，不用執行當天的價格，所以多久執行一次都不影響結果。
 情境價格是除息後市價，實際收盤也直接比較，不另加配息。
@@ -12,7 +14,7 @@ from datetime import date, timedelta
 
 import fetch_data
 import render
-from check import CASE, HORIZON
+from check import CASE
 from source import today as now
 
 RECORD = render.REPORT / "結算紀錄.json"
@@ -67,7 +69,7 @@ def settle(today=None, log=print, fetch=close_after):
         if not data:
             continue
         key = data["關鍵數字"]
-        for horizon in HORIZON:
+        for horizon in [h for h in MONTH if h in key["情境"]]:
             name = f"{path.parent.name}/{path.name}|{horizon}"
             target = months_later(date.fromisoformat(key["研究日"]), MONTH[horizon])
             if name in record or target >= today:
@@ -108,7 +110,7 @@ def stats(record):
     """各期間的樣本數、平均 Brier 分數，以及各情境的平均機率和實際命中率。"""
     result = {}
     row = dedupe(list(record.values()))
-    for horizon in HORIZON:
+    for horizon in MONTH:
         part = [r for r in row if r["期間"] == horizon]
         if not part:
             continue

@@ -24,13 +24,15 @@ KEY = {
     "合理區間": {"低": 38.0, "高": 50.0, "方法": "EPS 3.2 × 12～15.6 倍"},
     "情境": {h: {"保守": {"價格": 35.0, "機率": 25, "假設": "驗收延後"},
                  "中性": {"價格": 44.0, "機率": 50, "假設": "依進度認列"},
-                 "樂觀": {"價格": 52.0, "機率": 25, "假設": "新案提前"}} for h in ("6個月", "12個月")},
-    "配息": {"6個月": 0, "12個月": 2.0},
+                 "樂觀": {"價格": 52.0, "機率": 25, "假設": "新案提前"}} for h in ("12個月",)},
+    "配息": {"12個月": 2.0},
     "評等": {"籌碼": "偏多", "市場": "中性"},
     "季預估": [{"季": f"{2026 + (q + 3) // 4}Q{(q + 3) % 4 + 1}", "營收": 17.0, "毛利率": 20.0,
                "EPS": {"保守": 0.6, "中性": 0.8, "樂觀": 0.9}} for q in range(8)],
     "事件": [{"名稱": "工程驗收", "日期": "2027-03", "狀態": "預期", "機率": 60, "影響": 5.0, "情境": "樂觀",
               "說明": "認列剩餘 8 億元", "來源": "補充資料 [1]"}],
+    "檢查點": [{"日期": "2027-03", "指標": "2026Q4 EPS", "預期": "中性 0.8 元", "落後時": "下修中性情境"},
+              {"日期": "2027-08", "指標": "2027Q2 營收", "預期": "17 億元", "落後時": "重新估值"}],
     "重估條件": [{"指標": f"指標{i}", "門檻": "門檻", "動作": "動作"} for i in range(3)],
     "資料缺口": [],
     "結論": "現價在合理區間下緣，可分批買進。",
@@ -68,13 +70,18 @@ class CheckTest(unittest.TestCase):
         problem, key = check.check_text(draft(), {"代號": "8936", "類型": "個股", "收盤": 40.0, "收盤日": "2026-11-18"})
         self.assertEqual(problem, [])
         result = check.compute(key)
-        self.assertAlmostEqual(result["6個月"]["期望"]["價格"], 43.75)
+        self.assertAlmostEqual(result["12個月"]["期望"]["價格"], 43.75)
         self.assertAlmostEqual(result["12個月"]["中性"]["含息報酬"], 15.0)
+        # 樂觀 (52 + 2) / 40 - 1 = 35%，保守 (35 + 2) / 40 - 1 = -7.5%
+        self.assertAlmostEqual(result["12個月"]["上下檔比"], 35 / 7.5)
+        key = copy.deepcopy(KEY)
+        key["情境"]["12個月"]["保守"]["價格"] = 39.0
+        self.assertIsNone(check.compute(key)["12個月"]["上下檔比"])
         self.assertAlmostEqual(result["合理區間位置"], 100 * 2 / 12)
 
     def test_detects_order_probability_price_and_sections(self):
         key = copy.deepcopy(KEY)
-        key["情境"]["6個月"]["保守"]["價格"] = 50.0
+        key["情境"]["12個月"]["保守"]["價格"] = 50.0
         key["情境"]["12個月"]["中性"]["機率"] = 40
         key["事件"][0]["狀態"] = "已發生"
         problem, _ = check.check_text(draft(key, ["結論", "籌碼"]), {"代號": "8936", "類型": "個股", "收盤": 41.0,
@@ -82,6 +89,26 @@ class CheckTest(unittest.TestCase):
         text = "\n".join(problem)
         for word in ("保守 ≤ 中性 ≤ 樂觀", "機率合計必須為 100", "現價 40.0 與資料最新收盤 41.0 不符", "機率必須為 100", "章節必須依序"):
             self.assertIn(word, text)
+
+    def test_chance_must_be_multiple_of_five(self):
+        key = copy.deepcopy(KEY)
+        key["情境"]["12個月"]["保守"]["機率"] = 23
+        key["情境"]["12個月"]["中性"]["機率"] = 52
+        self.assertTrue(any("5 的倍數" in p for p in check.check_text(draft(key))[0]))
+
+    def test_checkpoint_rules(self):
+        key = copy.deepcopy(KEY)
+        key["檢查點"] = key["檢查點"][:1]
+        self.assertTrue(any("檢查點至少" in p for p in check.check_text(draft(key))[0]))
+        key = copy.deepcopy(KEY)
+        key["檢查點"][0]["日期"] = "2028-01"
+        key["檢查點"][1]["日期"] = "2027/08"
+        text = " ".join(check.check_text(draft(key))[0])
+        self.assertIn("12 個月內", text)
+        self.assertIn("YYYY-MM", text)
+        key = copy.deepcopy(KEY)
+        key["檢查點"][0]["日期"] = "2027-07"
+        self.assertTrue(any("6 個月內" in p for p in check.check_text(draft(key))[0]))
 
     def test_gap_fields_required(self):
         key = copy.deepcopy(KEY)
@@ -100,7 +127,7 @@ class CheckTest(unittest.TestCase):
     def test_chance_far_from_base_needs_reason(self):
         info = {"代號": "8936", "類型": "個股", "收盤": 40.0, "收盤日": "2026-11-18", "年化波動度": 5.0}
         base = check.base_chance(KEY, info)
-        self.assertAlmostEqual(sum(base["6個月"].values()), 100)
+        self.assertAlmostEqual(sum(base["12個月"].values()), 100)
         # 波動度很低時，股價幾乎不可能漲到樂觀區段，給樂觀 25% 就偏離基準太多
         problem, _ = check.check_text(draft(), info)
         self.assertTrue(any("機率說明" in p for p in problem))
@@ -122,7 +149,7 @@ class RenderTest(unittest.TestCase):
             (work / "定稿.md").write_text(draft(), encoding="utf-8")
             target = render.render(work / "定稿.md", work, Path(folder) / "out.html")
             page = target.read_text(encoding="utf-8")
-            for word in ("合理區間與 6／12 個月情境", "股價與 6／12 個月情境", "單季 EPS", "<table", "<li>重點一</li>",
+            for word in ("合理區間與 12 個月情境", "股價與 12 個月情境", "期中檢查點", "2026Q4 EPS", "上下檔比", "單季 EPS", "<table", "<li>重點一</li>",
                          "<strong>1</strong>", "工程驗收", "櫃買中心｜個股日成交資訊"):
                 self.assertIn(word, page)
             self.assertNotIn("{{", page)
@@ -308,7 +335,7 @@ class SettleTest(unittest.TestCase):
 
     def test_months_later_and_band(self):
         self.assertEqual(settle.months_later(date(2026, 8, 31), 6), date(2027, 2, 28))
-        case = KEY["情境"]["6個月"]
+        case = KEY["情境"]["12個月"]
         self.assertEqual([settle.band(case, v) for v in (30, 44, 60)], ["保守", "中性", "樂觀"])
 
     def test_settle_due_reports_once_and_stats(self):
@@ -324,15 +351,27 @@ class SettleTest(unittest.TestCase):
             fetched.append(target)
             return target.isoformat(), 53.0
 
-        added = settle.settle(date(2027, 6, 1), log=lambda m: None, fetch=fetch)
-        self.assertEqual([r["期間"] for r in added], ["6個月"])
-        self.assertEqual(added[0]["落點"], "樂觀")
         self.assertEqual(settle.settle(date(2027, 6, 1), log=lambda m: None, fetch=fetch), [])
+        added = settle.settle(date(2027, 12, 1), log=lambda m: None, fetch=fetch)
+        self.assertEqual([r["期間"] for r in added], ["12個月"])
+        self.assertEqual(added[0]["落點"], "樂觀")
+        self.assertEqual(settle.settle(date(2027, 12, 1), log=lambda m: None, fetch=fetch), [])
         self.assertEqual(len(fetched), 1)
         result = settle.stats(settle.load())
-        self.assertEqual(result["6個月"]["樣本"], 1)
-        self.assertEqual(result["6個月"]["情境"]["樂觀"]["命中率"], 100)
+        self.assertEqual(result["12個月"]["樣本"], 1)
+        self.assertEqual(result["12個月"]["情境"]["樂觀"]["命中率"], 100)
         self.assertIn("落在樂觀情境", settle.history("8936")[0])
+
+    def test_legacy_six_month_forecast_still_settles(self):
+        legacy = copy.deepcopy(KEY)
+        legacy["情境"]["6個月"] = copy.deepcopy(legacy["情境"]["12個月"])
+        path = self.root / "報告" / "8936" / "2026-11-19.html"
+        path.parent.mkdir(parents=True)
+        path.write_text("", encoding="utf-8")
+        with mock.patch.object(render, "extract", return_value={"關鍵數字": legacy}):
+            added = settle.settle(date(2027, 12, 1), log=lambda m: None, fetch=lambda t, d, n: (d.isoformat(), 40.0))
+        self.assertEqual(sorted(r["期間"] for r in added), ["12個月", "6個月"])
+        self.assertEqual(set(settle.stats(settle.load())), {"6個月", "12個月"})
 
 
 if __name__ == "__main__":
