@@ -567,17 +567,20 @@ def output_path(key, folder=None):
     return path
 
 
-def latest(ticker, folder=None):
-    """回傳該標的最新一份報告的路徑與內嵌資料，沒有時回傳 (None, None)。"""
+def reports(ticker, folder=None):
+    """回傳該標的所有報告，依研究日與版本由舊到新排序。"""
     base = Path(folder or REPORT) / ticker
-    if not base.exists():
-        return None, None
 
     def order(path):
         match = re.fullmatch(r"(\d{4}-\d{2}-\d{2})(?:-v(\d+))?", path.stem)
         return (match.group(1), int(match.group(2) or 1)) if match else ("", 0)
 
-    report = sorted(base.glob("*.html"), key=order)
+    return sorted(base.glob("*.html"), key=order) if base.exists() else []
+
+
+def latest(ticker, folder=None):
+    """回傳該標的最新一份報告的路徑與內嵌資料，沒有時回傳 (None, None)。"""
+    report = reports(ticker, folder)
     if not report:
         return None, None
     return report[-1], extract(report[-1])
