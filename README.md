@@ -37,7 +37,13 @@
 
 ## 網頁發布
 
-`報告/` 推送到 `dev` 後，GitHub Actions（[`.github/workflows/pages.yml`](.github/workflows/pages.yml)）會自動發布到 GitHub Pages，網址為 `https://yinweli.github.io/Finance/<代號>/<研究日>.html`。網站是公開的，報告依規則不寫個人持倉或帳戶資訊。
+`報告/` 推送到 `dev` 後，GitHub Actions（[`.github/workflows/pages.yml`](.github/workflows/pages.yml)）會自動發布到 GitHub Pages，網址為 `https://yinweli.github.io/Finance/<代號>/<研究日>.html`。網站是公開的，研究報告依規則不寫個人持倉或帳戶資訊。
+
+操作意見也是單頁網頁，放在 `報告/意見/<日期>-<主題>.html`，網址為 `https://yinweli.github.io/Finance/意見/<日期>-<主題>.html`。意見會寫到持股與現金，推送後同樣公開。產生方式：
+
+```powershell
+python -X utf8 -B 工具/opinion.py .tmp/工作/意見/2026-11-20-下週操作方向.md
+```
 
 需要手動重建清單時執行：
 
@@ -71,9 +77,9 @@ python -X utf8 -B 工具/run.py 8936
 | [流程/](流程/) | [研究流程](流程/研究流程.md)、[草稿格式](流程/草稿格式.md)、[補充資料](流程/補充資料.md)、[審查清單](流程/審查清單.md) |
 | [方法/](方法/) | 依類型的研究方法：[個股](方法/個股.md)、[股票 ETF](方法/股票ETF.md)、[債券 ETF](方法/債券ETF.md) |
 | [標的/](標的/) | 各標的的研究重點，新增標的時在這裡加一份文件 |
-| [工具/](工具/) | 抓取（`collect.py`、`fetch_data.py`、`fetch_market.py`）、檢查（`check.py`）、報告（`render.py`）、README 清單（`readme.py`）與串接（`run.py`、`agents.py`） |
+| [工具/](工具/) | 抓取（`collect.py`、`fetch_data.py`、`fetch_market.py`）、檢查（`check.py`）、報告（`render.py`）、操作意見（`opinion.py`）、README 清單（`readme.py`）與串接（`run.py`、`agents.py`） |
 | [版型/](版型/) | 報告的版面與配色 |
-| [報告/](報告/) | 已發布的報告，每個標的一個資料夾 |
+| [報告/](報告/) | 已發布的報告，每個標的一個資料夾；操作意見在 `報告/意見/` |
 | [測試/](測試/) | 使用固定資料的單元測試：`python -X utf8 -B -m unittest discover -s 測試 -v` |
 | [封存/](封存/) | 舊的生活支出與退休研究提示詞，不屬於目前流程 |
 
