@@ -320,8 +320,10 @@ def summary_line(job):
         data = render.extract(report) or {}
         key, result = data.get("關鍵數字", {}), data.get("計算", {})
         if key:
+            ratio = result["12個月"].get("上下檔比")
             line += (f"｜現價 {key['現價']['價格']}｜合理區間 {key['合理區間']['低']}～{key['合理區間']['高']}"
                      f"｜12個月期望 {result['12個月']['期望']['價格']:.2f}"
+                     f"｜上下檔比 {f'{ratio:.1f}' if ratio is not None else '保守也不虧'}"
                      f"\n  - 結論：{key['結論']}\n  - 報告：{state['報告']}")
     else:
         failed = [f"{k}：{v.get('說明', v['狀態'])}" for k, v in state["步驟"].items() if v["狀態"] != "完成"]

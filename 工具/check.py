@@ -21,6 +21,8 @@ RATING = ("偏多", "中性", "偏空")
 YEAR = {"12個月": 1.0}
 # 檢查點至少幾項，其中至少一項要在研究日後幾個月內
 CHECKPOINT_MIN = 2
+# 情境機率以 5 個百分點為單位，避免 47%、18% 這類看似精準、其實沒有依據的數字
+CHANCE_STEP = 5
 CHECKPOINT_EARLY = 6
 # 情境機率和歷史波動推算的基準差超過這個百分點，就要在「機率說明」寫明理由
 DEVIATION = 15
@@ -58,7 +60,10 @@ def is_number(value):
 
 
 def compute(key):
-    """依關鍵數字計算各情境漲跌幅、含息報酬，以及機率加權的期望價與期望報酬。"""
+    """依關鍵數字計算各情境漲跌幅、含息報酬、機率加權的期望價與期望報酬，以及上下檔比。
+
+    上下檔比 = 樂觀情境含息報酬 ÷ 保守情境含息虧損；保守情境也不虧損時為 None。
+    """
     price = key["現價"]["價格"]
     result = {}
     for horizon in HORIZON:
@@ -72,6 +77,8 @@ def compute(key):
         expect = sum(row[n]["價格"] * row[n]["機率"] for n in CASE) / 100
         row["期望"] = {"價格": expect, "漲跌幅": (expect / price - 1) * 100,
                      "含息報酬": ((expect + cash) / price - 1) * 100}
+        up, down = row["樂觀"]["含息報酬"], row["保守"]["含息報酬"]
+        row["上下檔比"] = up / -down if down < 0 else None
         result[horizon] = row
     low, high = key["合理區間"]["低"], key["合理區間"]["高"]
     result["合理區間位置"] = (price - low) / (high - low) * 100 if high > low else None
@@ -115,6 +122,7 @@ def check_key(key, profile=None):
         if need(all(is_number(v) and v > 0 for v in value), f"{horizon}情境價格必須是正數"):
             need(value[0] <= value[1] <= value[2], f"{horizon}情境價格必須保守 ≤ 中性 ≤ 樂觀，目前為 {value}")
         if need(all(isinstance(c, int) and 0 <= c <= 100 for c in chance), f"{horizon}情境機率必須是 0～100 的整數"):
+            need(all(c % CHANCE_STEP == 0 for c in chance), f"{horizon}情境機率必須是 {CHANCE_STEP} 的倍數，目前為 {chance}")
             need(sum(chance) == 100, f"{horizon}情境機率合計必須為 100，目前為 {sum(chance)}")
         need(all(case[n].get("假設") for n in CASE), f"{horizon}每個情境都要寫「假設」")
     for horizon in HORIZON:
@@ -280,7 +288,8 @@ def cli():
     print(f"通過。現價 {key['現價']['價格']}，合理區間 {key['合理區間']['低']}～{key['合理區間']['高']}")
     for horizon in HORIZON:
         row = result[horizon]
-        print(f"{horizon}：" + "、".join(f"{n} {row[n]['價格']:.2f}（{row[n]['含息報酬']:+.1f}%）" for n in CASE + ("期望",)))
+        print(f"{horizon}：" + "、".join(f"{n} {row[n]['價格']:.2f}（{row[n]['含息報酬']:+.1f}%）" for n in CASE + ("期望",))
+              + (f"；上下檔比 {row['上下檔比']:.1f}" if row["上下檔比"] is not None else "；保守情境也不虧"))
     return 0
 
 

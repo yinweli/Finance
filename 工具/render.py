@@ -455,6 +455,10 @@ def summary_card(key, result):
     for horizon in HORIZON:
         row = result[horizon]["期望"]
         tile.append((f"{horizon}期望價", num(row["價格"]), f"含息報酬 {signed(row['含息報酬'])}"))
+        ratio, up, down = (result[horizon].get("上下檔比"), result[horizon]["樂觀"]["含息報酬"],
+                           result[horizon]["保守"]["含息報酬"])
+        tile.append(("上下檔比", f"{ratio:.1f} : 1" if ratio is not None else "保守也不虧",
+                     f"樂觀 {signed(up)}／保守 {signed(down)}"))
     rating = "".join(f'<span class="pill">{esc(k)}：{esc(v)}</span>' for k, v in key["評等"].items())
     return ('<section class="summary" id="sec-summary">'
             f'<p class="verdict">{esc(key["結論"])}</p>'

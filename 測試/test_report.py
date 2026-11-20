@@ -72,6 +72,11 @@ class CheckTest(unittest.TestCase):
         result = check.compute(key)
         self.assertAlmostEqual(result["12個月"]["期望"]["價格"], 43.75)
         self.assertAlmostEqual(result["12個月"]["中性"]["含息報酬"], 15.0)
+        # 樂觀 (52 + 2) / 40 - 1 = 35%，保守 (35 + 2) / 40 - 1 = -7.5%
+        self.assertAlmostEqual(result["12個月"]["上下檔比"], 35 / 7.5)
+        key = copy.deepcopy(KEY)
+        key["情境"]["12個月"]["保守"]["價格"] = 39.0
+        self.assertIsNone(check.compute(key)["12個月"]["上下檔比"])
         self.assertAlmostEqual(result["合理區間位置"], 100 * 2 / 12)
 
     def test_detects_order_probability_price_and_sections(self):
@@ -84,6 +89,12 @@ class CheckTest(unittest.TestCase):
         text = "\n".join(problem)
         for word in ("保守 ≤ 中性 ≤ 樂觀", "機率合計必須為 100", "現價 40.0 與資料最新收盤 41.0 不符", "機率必須為 100", "章節必須依序"):
             self.assertIn(word, text)
+
+    def test_chance_must_be_multiple_of_five(self):
+        key = copy.deepcopy(KEY)
+        key["情境"]["12個月"]["保守"]["機率"] = 23
+        key["情境"]["12個月"]["中性"]["機率"] = 52
+        self.assertTrue(any("5 的倍數" in p for p in check.check_text(draft(key))[0]))
 
     def test_checkpoint_rules(self):
         key = copy.deepcopy(KEY)
@@ -138,7 +149,7 @@ class RenderTest(unittest.TestCase):
             (work / "定稿.md").write_text(draft(), encoding="utf-8")
             target = render.render(work / "定稿.md", work, Path(folder) / "out.html")
             page = target.read_text(encoding="utf-8")
-            for word in ("合理區間與 12 個月情境", "股價與 12 個月情境", "期中檢查點", "2026Q4 EPS", "單季 EPS", "<table", "<li>重點一</li>",
+            for word in ("合理區間與 12 個月情境", "股價與 12 個月情境", "期中檢查點", "2026Q4 EPS", "上下檔比", "單季 EPS", "<table", "<li>重點一</li>",
                          "<strong>1</strong>", "工程驗收", "櫃買中心｜個股日成交資訊"):
                 self.assertIn(word, page)
             self.assertNotIn("{{", page)
