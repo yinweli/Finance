@@ -284,18 +284,19 @@ def hbar_chart(title, item, unit="%"):
 
 
 def range_chart(key, result):
-    """點圖：合理區間、6 個月與 12 個月三情境，現價以貫穿各列的虛線表示。"""
+    """點圖：合理區間與各期間的三情境，現價以貫穿各列的虛線表示。"""
     fair = key["合理區間"]
     price = key["現價"]["價格"]
     value = [fair["低"], fair["高"], price] + [key["情境"][h][n]["價格"] for h in HORIZON for n in CASE]
     tick = nice(min(value), max(value), 6)
     low, high = tick[0], tick[-1]
     left, right, top, row = 120, 24, 34, 52
-    height = top + row * 3 + 26
+    lines = 1 + len(HORIZON)
+    height = top + row * lines + 26
     x = lambda v: left + (W - left - right) * (v - low) / (high - low)
     part = []
     for t in tick:
-        part.append(f'<line class="grid" x1="{x(t):.1f}" x2="{x(t):.1f}" y1="{top - 6}" y2="{top + row * 3 - 10}"/>')
+        part.append(f'<line class="grid" x1="{x(t):.1f}" x2="{x(t):.1f}" y1="{top - 6}" y2="{top + row * lines - 10}"/>')
         part.append(f'<text class="axis" x="{x(t):.1f}" y="{height - 6}" text-anchor="middle">{axis_num(t)}</text>')
     # 第 1 列：合理區間
     cy = top + row * 0.5 - 4
@@ -304,7 +305,7 @@ def range_chart(key, result):
                 f'height="20" rx="4" data-tip="合理區間&#10;{num(fair["低"])}～{num(fair["高"])} 元"/>')
     part.append(f'<text class="value" x="{x(fair["低"]) - 6:.1f}" y="{cy + 4}" text-anchor="end">{num(fair["低"])}</text>')
     part.append(f'<text class="value" x="{x(fair["高"]) + 6:.1f}" y="{cy + 4}">{num(fair["高"])}</text>')
-    # 第 2、3 列：情境
+    # 其餘各列：情境
     for i, horizon in enumerate(HORIZON, 1):
         cy = top + row * (i + 0.5) - 4
         case = key["情境"][horizon]
@@ -324,14 +325,14 @@ def range_chart(key, result):
                     f'data-tip="{horizon}機率加權期望價&#10;{num(expect)} 元"/>')
     # 現價
     px = x(price)
-    part.append(f'<line class="divider" x1="{px:.1f}" x2="{px:.1f}" y1="{top - 10}" y2="{top + row * 3 - 10}"/>')
+    part.append(f'<line class="divider" x1="{px:.1f}" x2="{px:.1f}" y1="{top - 10}" y2="{top + row * lines - 10}"/>')
     part.append(f'<text class="axis label" x="{px:.1f}" y="{top - 16}" text-anchor="middle">現價 {num(price)}</text>')
     legend = [(n, COLOR[n], "dot") for n in CASE] + [("機率加權期望價（◆）", "var(--ink)", "dot")]
-    return svg(part, "合理區間與 6／12 個月情境（元）", legend, height=height)
+    return svg(part, "合理區間與 12 個月情境（元）", legend, height=height)
 
 
 def scenario_chart(key, result, data):
-    """近 1 年收盤，接上 6、12 個月後三情境的價格路徑。"""
+    """近 1 年收盤，接上 12 個月後三情境的價格路徑（期間以直線內插）。"""
     row = data.get("price", {}).get("資料", [])[-250:]
     if not row:
         return ""
@@ -344,12 +345,11 @@ def scenario_chart(key, result, data):
     series = [("收盤", "var(--ink2)", close + [None] * 4, "solid")]
     price = key["現價"]["價格"]
     for name in ("樂觀", "中性", "保守"):
-        six = key["情境"]["6個月"][name]["價格"]
         twelve = key["情境"]["12個月"][name]["價格"]
-        path = [None] * last + [price, (price + six) / 2, six, (six + twelve) / 2, twelve]
+        path = [None] * last + [price + (twelve - price) * q / 4 for q in range(5)]
         series.append((name, COLOR[name], path, "dash"))
     fair = key["合理區間"]
-    return line_chart("股價與 6／12 個月情境（元）", label, series, band=(fair["低"], fair["高"], "合理區間"), mark=last)
+    return line_chart("股價與 12 個月情境（元）", label, series, band=(fair["低"], fair["高"], "合理區間"), mark=last)
 
 
 def chart_for(name, key, data):
@@ -507,8 +507,11 @@ def event_table(key):
 
 
 def review_table(key):
+    point = sorted(key.get("檢查點") or [], key=lambda p: str(p["日期"]))
+    head = ("<h3>期中檢查點</h3>" + table_html(["日期", "指標", "預期", "落後時"], [
+        [esc(p["日期"]), esc(p["指標"]), esc(p["預期"]), esc(p["落後時"])] for p in point])) if point else ""
     body = [[esc(r["指標"]), esc(r["門檻"]), esc(r["動作"])] for r in key["重估條件"]]
-    return "<h3>重估條件</h3>" + table_html(["指標", "門檻", "觸發後動作"], body)
+    return head + "<h3>重估條件</h3>" + table_html(["指標", "門檻", "觸發後動作"], body)
 
 
 def gap_list(key):

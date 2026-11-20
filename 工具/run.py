@@ -112,11 +112,14 @@ def step_fetch(job):
                  f"- 現價：{key['現價']['價格']}（{key['現價']['日期']}）",
                  f"- 合理區間：{key['合理區間']['低']}～{key['合理區間']['高']}（{key['合理區間']['方法']}）",
                  f"- 結論：{key['結論']}", "", "## 情境"]
-        for horizon in check.HORIZON:
+        for horizon in [h for h in settle.MONTH if h in key["情境"]]:
             lines.append(f"- {horizon}：" + "、".join(
                 f"{n} {key['情境'][horizon][n]['價格']}（{key['情境'][horizon][n]['機率']}%）" for n in check.CASE))
         lines += ["", "## 重估條件"] + [f"- {r['指標']}：{r['門檻']} → {r['動作']}" for r in key["重估條件"]]
         lines += ["", "## 事件"] + [f"- {e['日期']} {e['名稱']}（{e['狀態']}，{e['機率']}%，影響 {e['影響']}%）" for e in key["事件"]]
+        if key.get("檢查點"):
+            lines += ["", "## 檢查點（請逐項判斷已達成、落後或尚未到期）"] + [
+                f"- {p['日期']} {p['指標']}：預期 {p['預期']}；落後時 {p['落後時']}" for p in key["檢查點"]]
         lines += ["", "## 期中進度"] + progress(key, job.profile)
         past = settle.history(job.ticker)
         if past:
@@ -125,13 +128,13 @@ def step_fetch(job):
 
 
 def progress(key, info):
-    """上次研究至今的股價變化，以及目前價格落在上次 6 個月情境的哪一段。"""
+    """上次研究至今的股價變化，以及目前價格落在上次 12 個月情境的哪一段。"""
     price, last = info.get("收盤"), key["現價"]["價格"]
     if not price:
         return ["- 無最新收盤，無法比較"]
-    case = key["情境"]["6個月"]
+    case = key["情境"]["12個月"]
     return [f"- 上次研究至今股價 {(price / last - 1) * 100:+.1f}%（{last} → {price}，{info.get('收盤日')}）",
-            f"- 目前價格落在上次 6 個月情境的{settle.band(case, price)}區段"
+            f"- 目前價格落在上次 12 個月情境的{settle.band(case, price)}區段"
             f"（保守 {case['保守']['價格']}、中性 {case['中性']['價格']}、樂觀 {case['樂觀']['價格']}）"]
 
 
@@ -318,7 +321,7 @@ def summary_line(job):
         key, result = data.get("關鍵數字", {}), data.get("計算", {})
         if key:
             line += (f"｜現價 {key['現價']['價格']}｜合理區間 {key['合理區間']['低']}～{key['合理區間']['高']}"
-                     f"｜6個月期望 {result['6個月']['期望']['價格']:.2f}｜12個月期望 {result['12個月']['期望']['價格']:.2f}"
+                     f"｜12個月期望 {result['12個月']['期望']['價格']:.2f}"
                      f"\n  - 結論：{key['結論']}\n  - 報告：{state['報告']}")
     else:
         failed = [f"{k}：{v.get('說明', v['狀態'])}" for k, v in state["步驟"].items() if v["狀態"] != "完成"]

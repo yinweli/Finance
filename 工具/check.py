@@ -14,10 +14,14 @@ SECTIONS = {
     "債券ETF": ["關鍵數字", "結論", "基金規則與持債", "利率與匯率", "近 6 個月重大消息", "估值", "情境與事件", "風險與重估",
               "限制", "來源"],
 }
-HORIZON = ("6個月", "12個月")
+# 只做 12 個月預測：業界目標價以 12 個月為準，6 個月的股價主要由雜訊決定，改用檢查點追蹤
+HORIZON = ("12個月",)
 CASE = ("保守", "中性", "樂觀")
 RATING = ("偏多", "中性", "偏空")
-YEAR = {"6個月": 0.5, "12個月": 1.0}
+YEAR = {"12個月": 1.0}
+# 檢查點至少幾項，其中至少一項要在研究日後幾個月內
+CHECKPOINT_MIN = 2
+CHECKPOINT_EARLY = 6
 # 情境機率和歷史波動推算的基準差超過這個百分點，就要在「機率說明」寫明理由
 DEVIATION = 15
 # 合理區間算式「EPS 3.20 元 × 本益比 12.5～16.3 倍」驗算時容許的誤差
@@ -83,7 +87,7 @@ def check_key(key, profile=None):
             problem.append(message)
         return condition
 
-    for name in ("代號", "名稱", "類型", "研究日", "現價", "合理區間", "情境", "配息", "評等", "事件", "重估條件", "資料缺口", "結論"):
+    for name in ("代號", "名稱", "類型", "研究日", "現價", "合理區間", "情境", "配息", "評等", "事件", "檢查點", "重估條件", "資料缺口", "結論"):
         need(name in key, f"關鍵數字缺少「{name}」")
     if problem:
         return problem
@@ -137,6 +141,7 @@ def check_key(key, profile=None):
             need(itor.get("機率") == 100, f"已發生的事件「{label}」機率必須為 100")
         need(is_number(itor.get("影響")), f"事件「{label}」的影響必須是數字（%）")
         need(itor.get("情境") in CASE, f"事件「{label}」的情境必須是保守、中性或樂觀")
+    problem += check_checkpoint(key)
     need(len(key["重估條件"]) >= 3, "重估條件至少 3 項")
     for itor in key["重估條件"]:
         need(all(itor.get(n) for n in ("指標", "門檻", "動作")), f"重估條件「{itor.get('指標')}」缺少指標、門檻或動作")
@@ -148,6 +153,35 @@ def check_key(key, profile=None):
     need(bool(str(key["結論"]).strip()), "結論不可空白")
     if not problem:
         problem += check_formula(key) + check_chance(key, profile)
+    return problem
+
+
+def month_index(text):
+    found = re.fullmatch(r"(\d{4})-(\d{2})", str(text))
+    return int(found[1]) * 12 + int(found[2]) - 1 if found and 1 <= int(found[2]) <= 12 else None
+
+
+def check_checkpoint(key):
+    """檢查點：研究日後 12 個月內可觀察的里程碑，至少一項落在前 6 個月，供期中追蹤論點是否成立。"""
+    point = key.get("檢查點")
+    if not isinstance(point, list) or len(point) < CHECKPOINT_MIN:
+        return [f"檢查點至少 {CHECKPOINT_MIN} 項"]
+    problem, start = [], month_index(str(key.get("研究日", ""))[:7])
+    offset = []
+    for itor in point:
+        label = itor.get("指標", "（未命名）") if isinstance(itor, dict) else itor
+        if not isinstance(itor, dict) or not all(itor.get(n) for n in ("日期", "指標", "預期", "落後時")):
+            problem.append(f"檢查點「{label}」必須有日期、指標、預期、落後時")
+            continue
+        month = month_index(itor["日期"])
+        if month is None:
+            problem.append(f"檢查點「{label}」的日期必須是 YYYY-MM")
+        elif start is not None:
+            offset.append(month - start)
+            if not 0 <= month - start <= 12:
+                problem.append(f"檢查點「{label}」的日期必須在研究日後 12 個月內")
+    if not problem and start is not None and not any(o <= CHECKPOINT_EARLY for o in offset):
+        problem.append(f"至少一項檢查點要在研究日後 {CHECKPOINT_EARLY} 個月內")
     return problem
 
 
