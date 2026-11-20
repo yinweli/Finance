@@ -14,6 +14,9 @@ REPORT = ROOT / "報告"
 TEMPLATE = ROOT / "版型" / "報告.html"
 COLOR = {"中性": "var(--s1)", "保守": "var(--s2)", "樂觀": "var(--s3)"}
 DATA_NAME = "research-data"
+OPINION = "意見"  # 報告/ 底下放操作意見的資料夾，不是標的
+FOOTER = ("本報告由 Finance 研究流程自動產生：資料由程式抓取公開資訊，研究草稿由 Codex 撰寫，經 Claude 審查修正。"
+          "內容僅供個人研究參考，不構成投資建議。")
 
 
 def esc(text):
@@ -578,6 +581,7 @@ def build(text, work):
             .replace("{{subtitle}}", esc(f"{key['類型']}｜研究日 {key['研究日']}｜現價日期 {key['現價']['日期']}"))
             .replace("{{nav}}", "".join(nav))
             .replace("{{body}}", "\n".join(body))
+            .replace("{{footer}}", esc(FOOTER))
             .replace("{{data}}", f'<script type="application/json" id="{DATA_NAME}">{payload}</script>'))
 
 

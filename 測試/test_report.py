@@ -12,6 +12,7 @@ sys.path.insert(0, str(ROOT / "工具"))
 
 import agents  # noqa: E402
 import check  # noqa: E402
+import opinion  # noqa: E402
 import readme  # noqa: E402
 import render  # noqa: E402
 import run  # noqa: E402
@@ -162,12 +163,41 @@ class ReadmeTest(unittest.TestCase):
             self.assertNotIn("舊內容", text)
             self.assertTrue(text.endswith("# 後\n"))
 
+    def test_skips_opinion_folder(self):
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder) / render.OPINION
+            base.mkdir()
+            (base / "2026-11-20-下週.html").write_text("<p>意見</p>", encoding="utf-8")
+            self.assertNotIn(render.OPINION, readme.table(folder))
+
     def test_missing_marker_leaves_file(self):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "README.md"
             path.write_text("# 無標記\n", encoding="utf-8")
             self.assertFalse(readme.update(path, folder))
             self.assertEqual(path.read_text(encoding="utf-8"), "# 無標記\n")
+
+
+class OpinionTest(unittest.TestCase):
+    TEXT = ("# 下週操作方向\n\n- 撰寫日：2026-11-20\n\n## 結論\n\n先等。\n\n"
+            "## 持股\n\n| 代號 | 看法 |\n|---|---|\n| 0050 | 續抱 |\n")
+
+    def test_build_sections_nav_and_footer(self):
+        page = opinion.build(self.TEXT)
+        self.assertIn("<title>下週操作方向</title>", page)
+        self.assertIn('<a href="#sec-0">結論</a><a href="#sec-1">持股</a>', page)
+        self.assertIn("<td>0050</td>", page)
+        self.assertIn("撰寫日：2026-11-20", page)
+        self.assertIn(opinion.FOOTER, page)
+        self.assertNotIn("{{", page)
+
+    def test_publish_uses_markdown_name(self):
+        with tempfile.TemporaryDirectory() as folder:
+            source = Path(folder) / "2026-11-20-下週.md"
+            source.write_text(self.TEXT, encoding="utf-8")
+            target = opinion.publish(source, Path(folder) / "out" / "x.html")
+            self.assertTrue(target.exists())
+            self.assertIsNone(render.extract(target))
 
 
 class RunTest(unittest.TestCase):
