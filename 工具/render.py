@@ -479,13 +479,20 @@ def scenario_table(key, result):
 def event_table(key):
     if not key["事件"]:
         return ""
-    head = ["日期", "事件", "狀態", "機率", "對合理價影響", "情境", "說明", "來源"]
-    body = [[esc(e["日期"]), esc(e["名稱"]), esc(e["狀態"]), f"{e['機率']}%", signed(e["影響"]),
-             f'<span class="dot" style="background:{COLOR[e["情境"]]}"></span>{esc(e["情境"])}', inline(e["說明"]),
-             inline(e["來源"])] for e in sorted(key["事件"], key=lambda e: str(e["日期"]))]
+    # 欄位多、說明長，用表格會擠成橫向捲動，所以每個事件排成一張卡片
+    card = []
+    for e in sorted(key["事件"], key=lambda e: str(e["日期"])):
+        state = "pending" if e["狀態"] == "預期" else "done"
+        card.append(
+            f'<li class="event {state}"><div class="event-head"><span class="event-date">{esc(e["日期"])}</span>'
+            f'<strong class="event-name">{esc(e["名稱"])}</strong></div>'
+            f'<div class="event-meta"><span class="tag">{esc(e["狀態"])}</span><span>機率 {e["機率"]}%</span>'
+            f'<span>對合理價影響 {signed(e["影響"])}</span>'
+            f'<span><span class="dot" style="background:{COLOR[e["情境"]]}"></span>{esc(e["情境"])}情境</span></div>'
+            f'<p>{inline(e["說明"])}</p><div class="event-source">來源：{inline(e["來源"])}</div></li>')
     expect = sum(e["機率"] * e["影響"] for e in key["事件"] if e["狀態"] == "預期") / 100
     note = f'<p class="note">尚未發生事件的機率加權影響合計：{signed(expect)}（僅供參考，事件之間可能重疊）。</p>'
-    return "<h3>事件影響</h3>" + table_html(head, body, cls="events") + note
+    return '<h3>事件影響</h3><ul class="events">' + "".join(card) + "</ul>" + note
 
 
 def review_table(key):
