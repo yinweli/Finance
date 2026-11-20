@@ -12,6 +12,7 @@ sys.path.insert(0, str(ROOT / "工具"))
 
 import agents  # noqa: E402
 import check  # noqa: E402
+import readme  # noqa: E402
 import render  # noqa: E402
 import run  # noqa: E402
 
@@ -116,6 +117,33 @@ class RenderTest(unittest.TestCase):
         self.assertIn("&lt;script&gt;", render.markdown("<script>alert(1)</script>"))
 
 
+class ReadmeTest(unittest.TestCase):
+    def test_lists_latest_three_reports_per_ticker(self):
+        with tempfile.TemporaryDirectory() as folder:
+            report = Path(folder) / "報告"
+            base = report / "8936"
+            base.mkdir(parents=True)
+            data = json.dumps({"關鍵數字": {"名稱": "國統"}}, ensure_ascii=False)
+            for name in ("2026-10-01", "2026-11-19", "2026-11-19-v2", "2026-11-20"):
+                (base / f"{name}.html").write_text(
+                    f'<script type="application/json" id="research-data">{data}</script>', encoding="utf-8")
+            path = Path(folder) / "README.md"
+            path.write_text(f"# 前\n\n{readme.BEGIN}\n舊內容\n{readme.END}\n\n# 後\n", encoding="utf-8")
+            self.assertTrue(readme.update(path, report))
+            text = path.read_text(encoding="utf-8")
+            self.assertIn(f"| 8936 國統 | [2026-11-20]({readme.PAGES}8936/2026-11-20.html)、[2026-11-19-v2]", text)
+            self.assertNotIn("2026-10-01", text)
+            self.assertNotIn("舊內容", text)
+            self.assertTrue(text.endswith("# 後\n"))
+
+    def test_missing_marker_leaves_file(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "README.md"
+            path.write_text("# 無標記\n", encoding="utf-8")
+            self.assertFalse(readme.update(path, folder))
+            self.assertEqual(path.read_text(encoding="utf-8"), "# 無標記\n")
+
+
 class RunTest(unittest.TestCase):
     """用假的 Claude 與 Codex 跑完整流程，確認串接、檢查與重試。"""
 
@@ -123,7 +151,9 @@ class RunTest(unittest.TestCase):
         folder = tempfile.TemporaryDirectory()
         self.addCleanup(folder.cleanup)
         self.root = Path(folder.name)
+        (self.root / "README.md").write_text(f"{readme.BEGIN}\n{readme.END}\n", encoding="utf-8")
         patch = [mock.patch.object(run, "WORK", self.root / "工作"), mock.patch.object(render, "REPORT", self.root / "報告"),
+                 mock.patch.object(readme, "README", self.root / "README.md"),
                  mock.patch.object(run.collect, "collect", lambda t, w, d, log=None: profile(w)),
                  mock.patch.object(run, "log", lambda m: None)]
         for itor in patch:

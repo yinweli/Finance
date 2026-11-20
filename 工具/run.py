@@ -14,6 +14,7 @@ from pathlib import Path
 import agents
 import check
 import collect
+import readme
 import render
 from source import ROOT, today as now
 
@@ -219,6 +220,8 @@ def step_publish(job):
     target = render.render(job.path("定稿.md"), job.work)
     job.state["報告"] = rel(target)
     log(f"{job.ticker}：已發布 {job.state['報告']}")
+    if not readme.update():
+        log("README.md 缺少最新報告標記，未更新連結")
 
 
 ACTION = {"抓取": step_fetch, "補充": step_supplement, "草稿": step_draft, "審查": step_review, "發布": step_publish}
