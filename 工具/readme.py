@@ -15,7 +15,7 @@ END = "<!-- 最新報告結束 -->"
 
 def table(folder=None):
     base = Path(folder or render.REPORT)
-    tickers = sorted(p.name for p in base.iterdir() if p.is_dir()) if base.exists() else []
+    tickers = sorted(p.name for p in base.iterdir() if p.is_dir() and p.name != render.OPINION) if base.exists() else []
     rows = ["| 標的 | 最新報告 |", "| --- | --- |"]
     for ticker in tickers:
         report = render.reports(ticker, base)[-KEEP:][::-1]
