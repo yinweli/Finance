@@ -13,14 +13,7 @@
 
 <!-- 最新報告開始：由 工具/readme.py 產生，請勿手動修改 -->
 
-| 標的 | 最新報告 |
-| --- | --- |
-| 0050 元大台灣卓越50 | [2026-11-20-v2](https://yinweli.github.io/Finance/0050/2026-11-20-v2.html)、[2026-11-20](https://yinweli.github.io/Finance/0050/2026-11-20.html)、[2026-11-19](https://yinweli.github.io/Finance/0050/2026-11-19.html) |
-| 00679B 元大美債20年 | [2026-11-20-v2](https://yinweli.github.io/Finance/00679B/2026-11-20-v2.html)、[2026-11-20](https://yinweli.github.io/Finance/00679B/2026-11-20.html) |
-| 00713 元大台灣高息低波 | [2026-11-20-v2](https://yinweli.github.io/Finance/00713/2026-11-20-v2.html)、[2026-11-20](https://yinweli.github.io/Finance/00713/2026-11-20.html) |
-| 009826 貝萊德世界股票 | [2026-11-20-v2](https://yinweli.github.io/Finance/009826/2026-11-20-v2.html)、[2026-11-20](https://yinweli.github.io/Finance/009826/2026-11-20.html)、[2026-11-19](https://yinweli.github.io/Finance/009826/2026-11-19.html) |
-| 7584 樂意傳播 | [2026-11-20-v2](https://yinweli.github.io/Finance/7584/2026-11-20-v2.html)、[2026-11-20](https://yinweli.github.io/Finance/7584/2026-11-20.html) |
-| 8936 國統國際 | [2026-11-20-v2](https://yinweli.github.io/Finance/8936/2026-11-20-v2.html)、[2026-11-20](https://yinweli.github.io/Finance/8936/2026-11-20.html) |
+目前沒有報告。
 
 <!-- 最新報告結束 -->
 
@@ -43,7 +36,7 @@
 操作意見也是單頁網頁，放在 `報告/意見/<日期>-<主題>.html`，網址為 `https://yinweli.github.io/Finance/意見/<日期>-<主題>.html`。意見會寫到持股與現金，推送後同樣公開。產生方式：
 
 ```powershell
-python -X utf8 -B 工具/opinion.py .tmp/工作/意見/2026-11-20-下週操作方向.md
+python -X utf8 -B 工具/opinion.py .tmp/工作/意見/<日期>-<主題>.md
 ```
 
 需要手動重建清單時執行：
