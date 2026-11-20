@@ -15,6 +15,7 @@ import check  # noqa: E402
 import readme  # noqa: E402
 import render  # noqa: E402
 import run  # noqa: E402
+import settle  # noqa: E402
 
 KEY = {
     "代號": "8936", "名稱": "國統", "類型": "個股", "研究日": "2026-11-19",
@@ -80,6 +81,31 @@ class CheckTest(unittest.TestCase):
         text = "\n".join(problem)
         for word in ("保守 ≤ 中性 ≤ 樂觀", "機率合計必須為 100", "現價 40.0 與資料最新收盤 41.0 不符", "機率必須為 100", "章節必須依序"):
             self.assertIn(word, text)
+
+    def test_gap_fields_required(self):
+        key = copy.deepcopy(KEY)
+        key["資料缺口"] = [{"項目": "法說", "影響": "EPS"}]
+        problem, _ = check.check_text(draft(key))
+        self.assertTrue(any("可查" in p for p in problem))
+
+    def test_formula_must_match_fair_range(self):
+        key = copy.deepcopy(KEY)
+        key["合理區間"]["方法"] = "未來 4 季 EPS 3.20 元 × 本益比 12.5～16.3 倍"
+        key["合理區間"].update({"低": 40.0, "高": 52.2})
+        self.assertEqual(check.check_text(draft(key))[0], [])
+        key["合理區間"]["高"] = 60.0
+        self.assertTrue(any("方法算式" in p for p in check.check_text(draft(key))[0]))
+
+    def test_chance_far_from_base_needs_reason(self):
+        info = {"代號": "8936", "類型": "個股", "收盤": 40.0, "收盤日": "2026-11-18", "年化波動度": 5.0}
+        base = check.base_chance(KEY, info)
+        self.assertAlmostEqual(sum(base["6個月"].values()), 100)
+        # 波動度很低時，股價幾乎不可能漲到樂觀區段，給樂觀 25% 就偏離基準太多
+        problem, _ = check.check_text(draft(), info)
+        self.assertTrue(any("機率說明" in p for p in problem))
+        key = copy.deepcopy(KEY)
+        key["機率說明"] = "工程驗收時點不確定，事件風險高於歷史波動"
+        self.assertEqual(check.check_text(draft(key), info)[0], [])
 
     def test_missing_json_block(self):
         problem, key = check.check_text("# x\n\n## 關鍵數字\n\n沒有區塊\n")
@@ -161,27 +187,29 @@ class RunTest(unittest.TestCase):
             self.addCleanup(itor.stop)
         self.call = []
 
-    def fake_claude(self, verdict="通過"):
-        def claude(prompt, work, step, tools=None, timeout=0):
-            self.call.append(("claude", step))
+    def fake_claude(self, verdict="通過", note=""):
+        def claude(prompt, work, step, tools=None, timeout=0, model=None):
+            self.call.append(("claude", step, model))
             work = Path(work)
             if step in ("補充", "補查"):
                 (work / "補充資料.md").write_text("# 補充\n", encoding="utf-8")
             elif step.startswith("審查"):
-                (work / "審查.md").write_text(f"# 審查\n\n- 結論：{verdict}\n", encoding="utf-8")
-                (work / "定稿.md").write_text(draft(), encoding="utf-8")
+                (work / "審查.md").write_text(f"# 審查\n\n- 結論：{verdict}\n{note}", encoding="utf-8")
             return "done", {}
         return claude
 
-    def fake_codex(self, bad_first=False):
+    def fake_codex(self, bad_first=False, key=None):
         def codex(prompt, work, step, thread=None, timeout=0):
             self.call.append(("codex", step))
-            text = draft()
+            text = draft(key)
             if bad_first and step == "草稿":
                 text = text.replace('"價格": 40.0', '"價格": 41.0', 1)
-            (Path(work) / "草稿.md").write_text(text, encoding="utf-8")
+            (Path(work) / ("定稿.md" if step.startswith("定稿") else "草稿.md")).write_text(text, encoding="utf-8")
             return "done", "thread-1"
         return codex
+
+    def steps(self):
+        return [c[:2] for c in self.call]
 
     def test_full_run_publishes(self):
         with mock.patch.object(agents, "claude", self.fake_claude()), mock.patch.object(agents, "codex", self.fake_codex(True)):
@@ -189,8 +217,31 @@ class RunTest(unittest.TestCase):
             run.research(job)
         self.assertEqual(job.state["結果"], "已發布")
         self.assertTrue((self.root / "報告" / "8936" / "2026-11-19.html").exists())
-        self.assertIn(("codex", "草稿修正"), self.call)
+        self.assertIn(("codex", "草稿修正"), self.steps())
+        self.assertIn(("codex", "定稿"), self.steps())
+        self.assertIn(("claude", "補充", run.SEARCH_MODEL), self.call)
+        # 沒有阻擋意見時不複核；沒有資料缺口時不補查
+        self.assertNotIn(("claude", "複核"), self.steps())
+        self.assertNotIn(("claude", "補查"), self.steps())
         self.assertEqual(job.state["codex"], "thread-1")
+        self.assertTrue((job.work / "執行設定.json").exists())
+
+    def test_only_searchable_gap_triggers_recheck_and_block_triggers_confirm(self):
+        key = copy.deepcopy(KEY)
+        key["資料缺口"] = [{"項目": "非公開共識", "影響": "估值", "可查": False, "影響結論": True},
+                       {"項目": "小細節", "影響": "無", "可查": True, "影響結論": False}]
+        with mock.patch.object(agents, "claude", self.fake_claude(note="### 1［阻擋］數字錯誤\n")), \
+                mock.patch.object(agents, "codex", self.fake_codex(key=key)):
+            job = run.Job("8936", date(2026, 11, 19))
+            run.research(job)
+        self.assertNotIn(("claude", "補查"), self.steps())
+        self.assertIn(("claude", "複核"), self.steps())
+        key["資料缺口"][0]["可查"] = True
+        self.call.clear()
+        with mock.patch.object(agents, "claude", self.fake_claude()), mock.patch.object(agents, "codex", self.fake_codex(key=key)):
+            job = run.Job("8936", date(2026, 11, 20))
+            run.research(job)
+        self.assertIn(("claude", "補查"), self.steps())
 
     def test_quota_pauses_and_resume_continues(self):
         def quota(*arg, **kw):
@@ -212,7 +263,46 @@ class RunTest(unittest.TestCase):
             with self.assertRaises(run.Manual):
                 run.research(job)
         # 第 2 輪仍寫退回時，審查.md 沒有「通過」也沒有定稿問題，但流程只退回一次
-        self.assertEqual([c for c in self.call if c == ("codex", "草稿退修")], [("codex", "草稿退修")])
+        self.assertEqual([c for c in self.steps() if c == ("codex", "草稿退修")], [("codex", "草稿退修")])
+
+
+class SettleTest(unittest.TestCase):
+    def setUp(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.root = Path(folder.name)
+        for itor in (mock.patch.object(render, "REPORT", self.root / "報告"),
+                     mock.patch.object(settle, "RECORD", self.root / "報告" / "結算紀錄.json")):
+            itor.start()
+            self.addCleanup(itor.stop)
+
+    def test_months_later_and_band(self):
+        self.assertEqual(settle.months_later(date(2026, 8, 31), 6), date(2027, 2, 28))
+        case = KEY["情境"]["6個月"]
+        self.assertEqual([settle.band(case, v) for v in (30, 44, 60)], ["保守", "中性", "樂觀"])
+
+    def test_settle_due_reports_once_and_stats(self):
+        work = self.root / "工作"
+        work.mkdir()
+        profile(work)
+        source = work / "定稿.md"
+        source.write_text(draft(), encoding="utf-8")
+        render.render(source, work)
+        fetched = []
+
+        def fetch(ticker, target, today):
+            fetched.append(target)
+            return target.isoformat(), 53.0
+
+        added = settle.settle(date(2027, 6, 1), log=lambda m: None, fetch=fetch)
+        self.assertEqual([r["期間"] for r in added], ["6個月"])
+        self.assertEqual(added[0]["落點"], "樂觀")
+        self.assertEqual(settle.settle(date(2027, 6, 1), log=lambda m: None, fetch=fetch), [])
+        self.assertEqual(len(fetched), 1)
+        result = settle.stats(settle.load())
+        self.assertEqual(result["6個月"]["樣本"], 1)
+        self.assertEqual(result["6個月"]["情境"]["樂觀"]["命中率"], 100)
+        self.assertIn("落在樂觀情境", settle.history("8936")[0])
 
 
 if __name__ == "__main__":

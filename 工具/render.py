@@ -7,7 +7,7 @@ import sys
 from datetime import date
 from pathlib import Path
 
-from check import CASE, HORIZON, check_file, compute, parse
+from check import CASE, HORIZON, base_chance, check_file, compute, parse
 from source import ROOT
 
 REPORT = ROOT / "報告"
@@ -461,19 +461,27 @@ def summary_card(key, result):
             f'<div class="pills">{rating}</div>' + range_chart(key, result) + "</section>")
 
 
-def scenario_table(key, result):
-    head = ["期間", "情境", "機率", "期末價", "漲跌幅", "含息報酬", "主要假設"]
+def scenario_table(key, result, base=None):
+    """base 是依歷史波動推算的基準機率，有資料時多列一欄，方便看出研究判斷偏離多少。"""
+    head = ["期間", "情境", "機率"] + (["歷史基準"] if base else []) + ["期末價", "漲跌幅", "含息報酬", "主要假設"]
     body = []
     for horizon in HORIZON:
         for name in CASE:
             row = result[horizon][name]
-            body.append([horizon, f'<span class="dot" style="background:{COLOR[name]}"></span>{name}', f"{row['機率']}%",
-                         num(row["價格"]), signed(row["漲跌幅"]), signed(row["含息報酬"]),
-                         esc(key["情境"][horizon][name]["假設"])])
+            body.append([horizon, f'<span class="dot" style="background:{COLOR[name]}"></span>{name}', f"{row['機率']}%"]
+                        + ([f"{base[horizon][name]:.0f}%"] if base else [])
+                        + [num(row["價格"]), signed(row["漲跌幅"]), signed(row["含息報酬"]), esc(key["情境"][horizon][name]["假設"])])
         row = result[horizon]["期望"]
-        body.append([horizon, "<strong>機率加權</strong>", "100%", f"<strong>{num(row['價格'])}</strong>", signed(row["漲跌幅"]),
-                     signed(row["含息報酬"]), f"期間預估配息 {num(key['配息'][horizon])} 元"])
-    return table_html(head, body, cls="scenario")
+        body.append([horizon, "<strong>機率加權</strong>", "100%"] + (["100%"] if base else [])
+                    + [f"<strong>{num(row['價格'])}</strong>", signed(row["漲跌幅"]), signed(row["含息報酬"]),
+                       f"期間預估配息 {num(key['配息'][horizon])} 元"])
+    note = ""
+    if base:
+        note = '<p class="note">歷史基準：用近 2 年股價波動度、假設不漲不跌推算的機率，代表「只看波動、不做判斷」時的分布。'
+        if key.get("機率說明"):
+            note += f"研究判斷和基準不同的理由：{esc(key['機率說明'])}"
+        note += "</p>"
+    return table_html(head, body, cls="scenario") + note
 
 
 def event_table(key):
@@ -534,6 +542,9 @@ def build(text, work):
     title, key, section = parse(text)
     result = compute(key)
     data = load_data(work)
+    meta_path, setting_path = Path(work) / "資料" / "標的.json", Path(work) / "執行設定.json"
+    base = base_chance(key, json.loads(meta_path.read_text(encoding="utf-8"))) if meta_path.exists() else None
+    setting = json.loads(setting_path.read_text(encoding="utf-8")) if setting_path.exists() else {}
     nav, body = [], []
     for name, content in section:
         if name == "關鍵數字":
@@ -544,17 +555,23 @@ def build(text, work):
         if name == "結論":
             extra_before = summary_card(key, result)
         elif name == "情境與事件":
-            extra_before = scenario_chart(key, result, data) + scenario_table(key, result) + event_table(key)
+            extra_before = scenario_chart(key, result, data) + scenario_table(key, result, base) + event_table(key)
         elif name == "風險與重估":
             extra_before = review_table(key)
         elif name == "限制":
             extra_before = gap_list(key)
         elif name == "來源":
-            extra_after = data_source(data)
+            extra_after = data_source(data) + (
+                '<p class="note">執行設定：' + "；".join(f"{esc(k)} {esc(v)}" for k, v in setting.items()) + "</p>"
+                if setting else "")
         chart = chart_for(name, key, data)
         body.append(f'<section id="{anchor}"><h2>{esc(name)}</h2>{extra_before}{markdown(content)}'
                     f'{"<div class=\"charts\">" + chart + "</div>" if chart else ""}{extra_after}</section>')
     meta = {"關鍵數字": key, "計算": result, "產生時間": date.today().isoformat()}
+    if base:
+        meta["歷史基準機率"] = {h: {n: round(v, 1) for n, v in row.items()} for h, row in base.items()}
+    if setting:
+        meta["執行設定"] = setting
     template = TEMPLATE.read_text(encoding="utf-8")
     payload = json.dumps(meta, ensure_ascii=False).replace("</", "<\\/")
     return (template.replace("{{title}}", esc(title or f"{key['代號']} {key['名稱']}"))
