@@ -15,12 +15,12 @@
 
 | 標的 | 最新報告 |
 | --- | --- |
-| 0050 元大台灣卓越50 | [2026-11-21](https://yinweli.github.io/Finance/0050/2026-11-21.html) |
-| 00679B 元大美債20年 | [2026-11-21](https://yinweli.github.io/Finance/00679B/2026-11-21.html) |
-| 00713 元大台灣高息低波 | [2026-11-21](https://yinweli.github.io/Finance/00713/2026-11-21.html) |
-| 009826 貝萊德世界股票 | [2026-11-21](https://yinweli.github.io/Finance/009826/2026-11-21.html) |
-| 7584 樂意傳播 | [2026-11-21](https://yinweli.github.io/Finance/7584/2026-11-21.html) |
-| 8936 國統國際 | [2026-11-21](https://yinweli.github.io/Finance/8936/2026-11-21.html) |
+| 0050 元大台灣卓越50 | [2026-11-21-v2](https://yinweli.github.io/Finance/0050/2026-11-21-v2.html)、[2026-11-21](https://yinweli.github.io/Finance/0050/2026-11-21.html) |
+| 00679B 元大美債20年 | [2026-11-21-v2](https://yinweli.github.io/Finance/00679B/2026-11-21-v2.html)、[2026-11-21](https://yinweli.github.io/Finance/00679B/2026-11-21.html) |
+| 00713 元大台灣高息低波 | [2026-11-21-v2](https://yinweli.github.io/Finance/00713/2026-11-21-v2.html)、[2026-11-21](https://yinweli.github.io/Finance/00713/2026-11-21.html) |
+| 009826 貝萊德世界股票 | [2026-11-21-v2](https://yinweli.github.io/Finance/009826/2026-11-21-v2.html)、[2026-11-21](https://yinweli.github.io/Finance/009826/2026-11-21.html) |
+| 7584 樂意傳播 | [2026-11-21-v2](https://yinweli.github.io/Finance/7584/2026-11-21-v2.html)、[2026-11-21](https://yinweli.github.io/Finance/7584/2026-11-21.html) |
+| 8936 國統國際 | [2026-11-21-v2](https://yinweli.github.io/Finance/8936/2026-11-21-v2.html)、[2026-11-21](https://yinweli.github.io/Finance/8936/2026-11-21.html) |
 
 <!-- 最新報告結束 -->
 
