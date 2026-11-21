@@ -163,6 +163,33 @@ class FetchMarketTest(unittest.TestCase):
         self.assertEqual(row[-1], ["2026-11-18", 4.8, 5.07, 5.44, 5.41])
         self.assertNotIn("2024-01-02", [r[0] for r in row])
 
+    def test_us_index_falls_back_to_fred(self):
+        # 2026-11-19、11-20 美東 9:30 開盤的時間戳記；gmtoffset 換算後應是美國當地日期
+        chart = json.dumps({"chart": {"result": [{"meta": {"gmtoffset": -18000},
+                                                   "timestamp": [1795098600, 1795185000],
+                                                   "indicators": {"quote": [{"close": [100.123, None]}]}}]}})
+
+        def fake(url, keep=False):
+            if "%5EGSPC" in url:
+                raise source.HTTPError(url, 429, "Too Many Requests", None, None)
+            if "fred" in url:
+                return "observation_date,SP500\n2026-11-19,7175.83\n2026-11-20,.\n"
+            return chart
+
+        with mock.patch.object(fetch_market, "fetch", fake):
+            data = fetch_market.us_index(2, date(2026, 11, 21))
+        self.assertEqual(data.row, [["2026-11-19", 7175.83, 100.12, 100.12, 100.12, 100.12, 100.12]])
+        self.assertIn("FRED｜SP500", [itor["名稱"] for itor in data.source])
+        self.assertTrue(any(itor.startswith("S&P 500（Yahoo Finance）") for itor in data.missing))
+
+    def test_market_section_lists_us_index(self):
+        import collect
+        us = source.Dataset("us_index", "美股", ["日期", "S&P 500", "VIX"])
+        us.row = [["2026-11-19", 7175.83, 28.44], ["2026-11-20", 6910.39, 35.89]]
+        text = collect.market_section({"taiex": source.Dataset("taiex", "", []), "us_index": us})
+        self.assertIn("- S&P 500 6,910（2026-11-20）；報酬 1 日 -3.7%", text)
+        self.assertIn("- VIX 35.89（2026-11-20）；前一交易日 28.44，近 1 年 28.44～35.89", text)
+
 
 if __name__ == "__main__":
     unittest.main()
