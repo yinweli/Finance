@@ -57,7 +57,8 @@ def collect(ticker, work, day, log=print):
     days60 = fetch_market.trading_days(calendar, 60)
     stock = info["類型"] == "個股"
     group = {"證交所": [("market_margin", lambda: fetch_market.market_margin(days60, day))],
-             "櫃買中心": [], "觀測站": [], "其他": [("futures", lambda: fetch_market.futures(4, day))]}
+             "櫃買中心": [], "觀測站": [], "其他": [("futures", lambda: fetch_market.futures(4, day))],
+             "美股": [("us_index", lambda: fetch_market.us_index(MONTHS, day))]}
     venue = group["證交所" if exchange == "TWSE" else "櫃買中心"]
     venue += [("price", lambda: fetch_data.daily(ticker, exchange, MONTHS, day)),
               ("dividend", lambda: fetch_data.dividend(ticker, exchange, day - timedelta(days=730), day))]
@@ -350,6 +351,24 @@ def market_section(data):
         row = data["futures"].row
         line.append(f"- 外資台指期淨未平倉 {fmt(row[-1][1], 0)} 口（{row[-1][0]}），20 個交易日前 "
                     f"{fmt(row[-21][1] if len(row) > 20 else row[0][1], 0)} 口")
+    if "us_index" in data and data["us_index"].row:
+        row = data["us_index"].row
+        line += ["", "### 美股（美國交易日，收盤晚於同日台股）", ""]
+        for index, name in enumerate(data["us_index"].column[1:], 1):
+            value = [(r[0], r[index]) for r in row if r[index] is not None]
+            if not value:
+                continue
+            close = [itor[1] for itor in value]
+            text = f"- {name} {fmt(close[-1])}（{value[-1][0]}）"
+            average = "、".join(f"{n} 日均線 {fmt(mean(close[-n:]))}" for n in (20, 60, 240) if len(close) >= n)
+            if average:
+                text += "，" + average
+            if name == "VIX":  # VIX 是波動度水準，看高低區間比看報酬率有意義
+                text += f"；前一交易日 {fmt(close[-2]) if len(close) > 1 else '—'}，近 1 年 {fmt(min(close[-250:]))}～{fmt(max(close[-250:]))}"
+            else:
+                text += "；報酬 " + "、".join(f"{label} {pct(change(close, n))}"
+                                            for label, n in (("1 日", 1), ("1 個月", 21), ("3 個月", 63), ("1 年", 250)))
+            line.append(text)
     return "\n".join(line)
 
 

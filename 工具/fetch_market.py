@@ -6,7 +6,8 @@
 import csv
 import io
 import json
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
+from urllib.parse import quote
 
 from source import CACHE, Dataset, fetch, number, recent_month, roc_date, twse_rows
 
@@ -302,4 +303,58 @@ def ust(years, today):
     data.row.sort()
     start = today.replace(year=today.year - years).isoformat()
     data.row = [itor for itor in data.row if itor[0] >= start]
+    return data
+
+
+# 美股
+
+# （欄名, Yahoo 代號, FRED 備援代號）。FRED 是官方來源，但通常晚一天才更新，所以只當備援。
+US_INDEX = (("S&P 500", "^GSPC", "SP500"), ("那斯達克", "^IXIC", "NASDAQCOM"), ("費城半導體", "^SOX", None),
+            ("VIX", "^VIX", "VIXCLS"), ("台積電ADR", "TSM", None), ("ACWI", "ACWI", None))
+
+
+def utc_stamp(day):
+    return int(datetime(day.year, day.month, day.day, tzinfo=timezone.utc).timestamp())
+
+
+def yahoo(symbol, start, today):
+    """Yahoo Finance 日收盤；時間戳記換成交易所當地日期。"""
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{quote(symbol)}"
+    text = fetch(f"{url}?period1={utc_stamp(start)}&period2={utc_stamp(today + timedelta(days=1))}&interval=1d")
+    result = json.loads(text)["chart"]["result"][0]
+    offset = result["meta"]["gmtoffset"]
+    close = result["indicators"]["quote"][0]["close"]
+    return url, {datetime.fromtimestamp(stamp + offset, timezone.utc).date().isoformat(): round(value, 2)
+                 for stamp, value in zip(result["timestamp"], close) if value is not None}
+
+
+def fred(series, start, today):
+    url = "https://fred.stlouisfed.org/graph/fredgraph.csv"
+    row = list(csv.reader(io.StringIO(fetch(f"{url}?id={series}&cosd={start}&coed={today}"))))
+    return url, {itor[0]: number(itor[1]) for itor in row[1:] if len(itor) > 1 and number(itor[1]) is not None}
+
+
+def us_index(months, today):
+    """美股指數、VIX、台積電 ADR 與全球股市代理 ACWI 的日收盤。"""
+    name = [itor[0] for itor in US_INDEX]
+    data = Dataset("us_index", "美股指數與台積電 ADR", ["日期"] + name, {"台積電ADR": "美元", "ACWI": "美元"},
+                   note="日期為美國交易日，收盤晚於同日台股；在美股盤中執行時，最後一筆可能是盤中價")
+    start = recent_month(today, months)[0]
+    column = {}
+    for title, symbol, backup in US_INDEX:
+        for site, code, reader in (("Yahoo Finance", symbol, yahoo), ("FRED", backup, fred)):
+            if code is None:
+                continue
+            try:
+                url, value = reader(code, start, today)
+            except Exception as error:  # Yahoo 是非官方介面，可能限流或改版；改用備援或記入缺漏，不中斷研究
+                data.missing.append(f"{title}（{site}）：{error}")
+                continue
+            if value:
+                column[title] = value
+                data.add_source(f"{site}｜{code}", url)
+                break
+            data.missing.append(f"{title}（{site}）：無資料")
+    for day in sorted(set().union(*column.values())):
+        data.row.append([day] + [column.get(itor, {}).get(day) for itor in name])
     return data
