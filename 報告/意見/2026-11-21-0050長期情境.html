@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>0050 長期持有情境（假設加權指數跌到 30,000 點）</title>
+<style>
+:root {
+  color-scheme: light;
+  --page: #f1f0ec; --card: #ffffff; --shadow: rgba(0, 0, 0, .06);
+  --surface: #fafaf8; --surface2: #f1f0ec; --line: #dddbd4;
+  --ink: #161615; --ink2: #3f3e3a; --ink3: #64635e;
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a;
+  --up: #d03b3b; --down: #0b8a0b; --accent: #2a78d6;
+  --fair: rgba(42, 120, 214, .14);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --page: #141413; --card: #1d1d1c; --shadow: rgba(0, 0, 0, .4);
+    --surface: #222221; --surface2: #2a2a28; --line: #3d3d3a;
+    --ink: #f3f2ef; --ink2: #d0cfc6; --ink3: #a5a49c;
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70;
+    --up: #e66767; --down: #2fb52f; --accent: #3987e5;
+    --fair: rgba(57, 135, 229, .22);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #141413; --card: #1d1d1c; --shadow: rgba(0, 0, 0, .4);
+  --surface: #222221; --surface2: #2a2a28; --line: #3d3d3a;
+  --ink: #f3f2ef; --ink2: #d0cfc6; --ink3: #a5a49c;
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70;
+  --up: #e66767; --down: #2fb52f; --accent: #3987e5;
+  --fair: rgba(57, 135, 229, .22);
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0; background: var(--page); color: var(--ink);
+  font: 19px/1.85 "Noto Sans TC", "Microsoft JhengHei", "PingFang TC", system-ui, sans-serif;
+  -webkit-text-size-adjust: 100%;
+}
+header.top { padding: 40px 16px 20px; max-width: 880px; margin: 0 auto; text-align: center; }
+header.top h1 { margin: 0; font-size: 2.1rem; line-height: 1.35; letter-spacing: .02em; }
+header.top .sub { color: var(--ink2); font-size: 1rem; margin-top: 6px; }
+nav.toc {
+  position: sticky; top: 0; z-index: 5; overflow-x: auto; scrollbar-width: thin;
+  background: var(--page); border-bottom: 1px solid var(--line); box-shadow: 0 2px 8px var(--shadow);
+}
+/* 選單放在內層並置中；寬度超過畫面時改為左右捲動，避免置中把最左邊的項目裁掉 */
+nav.toc .toc-inner { display: flex; gap: 6px; width: max-content; margin: 0 auto; padding: 10px 16px; }
+nav.toc a {
+  white-space: nowrap; color: var(--ink2); text-decoration: none; font-size: 1rem; font-weight: 500;
+  padding: 6px 16px; border-radius: 999px; border: 1px solid transparent;
+}
+nav.toc a:hover { background: var(--card); border-color: var(--line); color: var(--ink); }
+nav.toc a.active { background: var(--accent); color: #fff; }
+main { max-width: 880px; margin: 0 auto; padding: 8px 16px 64px; }
+section {
+  background: var(--card); border: 1px solid var(--line); border-radius: 16px;
+  padding: 28px 36px 20px; margin: 24px 0; scroll-margin-top: 80px;
+}
+section.summary { background: none; border: 0; border-radius: 0; padding: 0; margin: 0 0 8px; }
+h2 { font-size: 1.6rem; line-height: 1.4; margin: 0 0 16px; padding-left: 14px; border-left: 6px solid var(--accent); }
+h3 { font-size: 1.25rem; margin: 32px 0 10px; }
+h4 { font-size: 1.08rem; margin: 20px 0 8px; color: var(--ink2); }
+p { margin: 0 0 1em; }
+p, li { color: var(--ink); }
+ul, ol { padding-left: 1.4em; }
+li { margin: 4px 0; }
+a { color: var(--accent); word-break: break-all; }
+code { background: var(--surface2); padding: 1px 6px; border-radius: 4px; font-size: .9em; }
+.note { color: var(--ink2); font-size: .95rem; }
+.verdict {
+  font-size: 1.3rem; line-height: 1.7; font-weight: 700; margin: 0 0 20px; padding: 18px 20px;
+  background: var(--surface2); border-left: 6px solid var(--accent); border-radius: 10px;
+}
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; }
+.tile { border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; background: var(--surface); }
+.tile-label { color: var(--ink2); font-size: 1rem; }
+.tile-value { font-size: 1.9rem; line-height: 1.4; font-weight: 700; font-variant-numeric: tabular-nums; }
+.tile-note { color: var(--ink2); font-size: .95rem; }
+.pills { margin: 16px 0 4px; display: flex; gap: 10px; flex-wrap: wrap; }
+.pill { border: 1px solid var(--line); border-radius: 999px; padding: 4px 14px; font-size: 1rem; color: var(--ink); background: var(--surface); }
+.up { color: var(--up); font-weight: 700; }
+.down { color: var(--down); font-weight: 700; }
+.flat { color: var(--ink2); }
+.dot { display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin-right: 6px; vertical-align: 0; }
+.table-wrap { overflow-x: auto; margin: 14px 0; border: 1px solid var(--line); border-radius: 10px; }
+table { border-collapse: collapse; width: 100%; font-size: .95rem; line-height: 1.65; font-variant-numeric: tabular-nums; }
+th, td { padding: 10px 12px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+tr:last-child td { border-bottom: 0; }
+tbody tr:nth-child(even) td { background: var(--surface); }
+th { color: var(--ink); font-weight: 700; background: var(--surface2); white-space: nowrap; }
+table.scenario td:nth-child(-n+6) { white-space: nowrap; }
+ul.events { list-style: none; padding: 0; margin: 14px 0; display: grid; gap: 12px; }
+li.event { margin: 0; border: 1px solid var(--line); border-left: 5px solid var(--ink3); border-radius: 10px; padding: 12px 16px; background: var(--surface); }
+li.event.pending { border-left-color: var(--accent); }
+li.event p { margin: 6px 0 4px; }
+.event-head { display: flex; gap: 12px; flex-wrap: wrap; align-items: baseline; }
+.event-date { color: var(--ink2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.event-name { font-size: 1.05rem; }
+.event-meta { display: flex; gap: 6px 18px; flex-wrap: wrap; font-size: .95rem; color: var(--ink2); margin-top: 4px; }
+.event-meta .tag { border: 1px solid var(--line); border-radius: 999px; padding: 0 10px; background: var(--card); color: var(--ink); }
+.event-source { font-size: .9rem; color: var(--ink2); }
+.charts { display: grid; gap: 20px; margin-top: 20px; }
+figure.chart { margin: 16px 0 0; border: 1px solid var(--line); border-radius: 12px; padding: 14px 14px 6px; position: relative; overflow-x: auto; background: var(--card); }
+.charts figure.chart { margin: 0; }
+figure.chart figcaption { font-weight: 700; font-size: 1.08rem; color: var(--ink); }
+figure.chart svg { width: 100%; min-width: 540px; height: auto; display: block; overflow: visible; }
+.legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: .95rem; color: var(--ink2); margin: 6px 0; }
+.legend i { display: inline-block; width: 16px; height: 11px; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
+svg .grid { stroke: var(--line); stroke-width: 1; }
+svg .zero { stroke: var(--ink3); stroke-width: 1; }
+svg .axis { fill: var(--ink2); font-size: 14px; }
+svg .axis.label { fill: var(--ink2); font-size: 14px; }
+svg .value { fill: var(--ink); font-size: 14px; }
+svg .band { fill: var(--fair); }
+svg .band-label { fill: var(--ink2); font-size: 13px; }
+svg .fair { fill: var(--fair); stroke: var(--s1); stroke-width: 1; }
+svg .divider { stroke: var(--ink3); stroke-dasharray: 3 3; }
+svg .whisker { stroke: var(--ink2); stroke-width: 2; }
+svg .forecast { opacity: .45; }
+svg .hit { fill: transparent; }
+svg .hit:hover { fill: var(--ink); fill-opacity: .05; }
+#tip {
+  position: fixed; pointer-events: none; z-index: 10; background: var(--ink); color: var(--card);
+  padding: 8px 12px; border-radius: 8px; font-size: 1rem; white-space: pre; display: none; line-height: 1.6;
+}
+#top {
+  position: fixed; right: 20px; bottom: 20px; z-index: 6; display: none; cursor: pointer;
+  font: inherit; font-size: 1rem; padding: 10px 18px; border-radius: 999px;
+  color: #fff; background: var(--accent); border: 0; box-shadow: 0 2px 10px var(--shadow);
+}
+footer { max-width: 880px; margin: 0 auto; padding: 8px 16px 40px; color: var(--ink2); font-size: .92rem; text-align: center; }
+@media (max-width: 640px) {
+  body { font-size: 18px; }
+  header.top { padding-top: 28px; }
+  header.top h1 { font-size: 1.7rem; }
+  main { padding: 4px 10px 56px; }
+  section { padding: 20px 16px 12px; border-radius: 12px; margin: 16px 0; }
+  h2 { font-size: 1.4rem; }
+}
+@media print {
+  nav.toc, #top { display: none; }
+  body { background: #fff; }
+  section { border: 0; padding: 12px 0; }
+  figure.chart { break-inside: avoid; }
+}
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>0050 長期持有情境（假設加權指數跌到 30,000 點）</h1>
+  <div class="sub">操作意見</div>
+</header>
+<nav class="toc"><div class="toc-inner"><a href="#sec-0">結論</a><a href="#sec-1">起點與方法</a><a href="#sec-2">你的 0050 資產</a><a href="#sec-3">怎麼看機率</a><a href="#sec-4">和新資金規則的關係</a><a href="#sec-5">限制</a></div></nav>
+<main>
+<section class="summary"><ul><li>撰寫日：2026-11-21</li><li>依據：2026-11-21 的 0050 研究報告 v2（2026-11-20 收盤 84.45 元、加權指數 36,033 點，每單位前瞻 EPS 5.35 元），以及「財務｜股票」損益紀錄（74,000 股，成本 5,249,405 元，平均每股約 70.94 元）。</li><li>問題：如果下週加權指數一路破底到 30,000 點，之後持有 3、5、10、20 年，0050 的保守、中性、樂觀價格，以及我的 0050 資產和報酬率各是多少？</li></ul></section>
+<section id="sec-0"><h2>結論</h2><ul><li><strong>跌到 30,000 點時</strong>，0050 約 <strong>70.3 元</strong>，74,000 股市值約 <strong>520 萬</strong>，和成本 524.9 萬差不多（帳面約 −0.9%）。這時的前瞻本益比約 <strong>13.2 倍</strong>，低於台股長期約 15 倍的平均。</li><li><strong>持有 10 年以上</strong>，三種情境的資產（配息再投入）都高於成本：保守約 700 萬（+33%），中性約 1,343 萬（+156%），樂觀約 2,148 萬（+309%）。</li><li><strong>持有 3～5 年</strong>，保守情境大致只有打平，中性情境約 +51%～+83%。</li><li><strong>起點越便宜，長期報酬越高</strong>。跌到 30,000 點對持有 10 年以上的人反而有利，前提是不會在低點被迫賣出。定存 300 萬不動用的安排正好保護這一點。</li></ul></section>
+<section id="sec-1"><h2>起點與方法</h2><p><strong>起點</strong>：假設 0050 和加權指數同比例下跌，84.45 × 30,000 ÷ 36,033 ≈ 70.3 元。0050 的 Beta 約 1.01，這個假設合理。</p>
+<p><strong>方法</strong>：長期報酬拆成三部分：獲利成長、配息、本益比變動。這是業界估算長期股票報酬常用的方法（Grinold-Kroner 模型）。期末價格等於期末前瞻 EPS 乘以期末本益比。</p>
+<div class="table-wrap"><table class=""><thead><tr><th>情境</th><th>EPS 年成長（前 5 年／之後）</th><th>期末本益比</th><th>代表的狀況</th></tr></thead><tbody><tr><td>保守</td><td>0%／3%</td><td>12 倍</td><td>AI 循環反轉，整籃獲利停滯 5 年，估值停在低檔</td></tr><tr><td>中性</td><td>8%／5%</td><td>15 倍</td><td>台積電依共識成長，之後回到台股長期水準</td></tr><tr><td>樂觀</td><td>13%／7%</td><td>18 倍</td><td>AI 需求延續，估值回到偏高水準</td></tr></tbody></table></div>
+<ul><li>本益比在 3 年內從 13.2 倍線性移到目標值，之後維持不變。</li><li>配息率維持約 30%（目前每單位每年配 1.60 元），配息隨 EPS 成長。</li><li><strong>配息再投入</strong>：每年配息在當年價格買回 0050。<strong>現金配息</strong>：配息領出來不再投入，只加總金額。</li></ul></section>
+<section id="sec-2"><h2>你的 0050 資產</h2><p>74,000 股，報酬率以成本 5,249,405 元計算。年化報酬從 70.3 元這個起點算起，含配息再投入。</p>
+<div class="table-wrap"><table class=""><thead><tr><th>持有</th><th>情境</th><th>0050 價格</th><th>市值</th><th>市值＋現金配息</th><th>配息再投入後的資產</th><th>對成本的報酬率（再投入）</th><th>年化</th></tr></thead><tbody><tr><td>3 年</td><td>保守</td><td>64</td><td>475 萬</td><td>510 萬</td><td>510 萬</td><td>−2.8%</td><td>−0.7%</td></tr><tr><td>3 年</td><td>中性</td><td>101</td><td>748 萬</td><td>786 萬</td><td>792 萬</td><td>+51%</td><td>+15.0%</td></tr><tr><td>3 年</td><td>樂觀</td><td>139</td><td>1,028 萬</td><td>1,068 萬</td><td>1,078 萬</td><td>+105%</td><td>+27.5%</td></tr><tr><td>5 年</td><td>保守</td><td>64</td><td>475 萬</td><td>534 萬</td><td>536 萬</td><td>+2.1%</td><td>+0.6%</td></tr><tr><td>5 年</td><td>中性</td><td>118</td><td>872 萬</td><td>941 萬</td><td>958 萬</td><td>+83%</td><td>+13.0%</td></tr><tr><td>5 年</td><td>樂觀</td><td>177</td><td>1,312 萬</td><td>1,389 萬</td><td>1,418 萬</td><td>+170%</td><td>+22.2%</td></tr><tr><td>10 年</td><td>保守</td><td>74</td><td>550 萬</td><td>672 萬</td><td>700 萬</td><td>+33%</td><td>+3.0%</td></tr><tr><td>10 年</td><td>中性</td><td>150</td><td>1,113 萬</td><td>1,278 萬</td><td>1,343 萬</td><td>+156%</td><td>+9.9%</td></tr><tr><td>10 年</td><td>樂觀</td><td>249</td><td>1,840 萬</td><td>2,042 萬</td><td>2,148 萬</td><td>+309%</td><td>+15.2%</td></tr><tr><td>20 年</td><td>保守</td><td>100</td><td>740 萬</td><td>1,019 萬</td><td>1,195 萬</td><td>+128%</td><td>+4.2%</td></tr><tr><td>20 年</td><td>中性</td><td>245</td><td>1,813 萬</td><td>2,258 萬</td><td>2,641 萬</td><td>+403%</td><td>+8.5%</td></tr><tr><td>20 年</td><td>樂觀</td><td>489</td><td>3,620 萬</td><td>4,245 萬</td><td>4,930 萬</td><td>+839%</td><td>+11.9%</td></tr></tbody></table></div>
+<ul><li>過去已實現的配息與借券收入 93,875 元沒有算在表內。</li><li>表內沒有算新資金規則裡預定加碼的 2 張。</li></ul></section>
+<section id="sec-3"><h2>怎麼看機率</h2><ul><li><strong>三種情境的位置</strong>：保守大約是統計上的第 25 百分位（四次裡約有一次會更差），中性接近中位數，樂觀大約是第 75 百分位。3 年的樂觀比較接近第 90 百分位，因為它同時假設估值從 13 倍回到 18 倍。這是研究判斷，不是精確校準過的機率。</li><li><strong>持有期滿仍虧損的機率</strong>：假設年化總報酬 7～8.5%、年化波動 22%（台股長期水準；近 2 年是 28%），從 30,000 點起算：</li></ul>
+<div class="table-wrap"><table class=""><thead><tr><th>持有</th><th>虧損機率</th></tr></thead><tbody><tr><td>3 年</td><td>25～29%</td></tr><tr><td>5 年</td><td>19～24%</td></tr><tr><td>10 年</td><td>11～16%</td></tr><tr><td>20 年</td><td>4～8%</td></tr></tbody></table></div>
+<p>持有越久，虧損機率越低，但不會變成 0。</p>
+<ul><li><strong>和 1990 年不同</strong>：台股 1990 年的高點，股價指數花了約 30 年才超越，原因是當時的本益比超過 50 倍。13 倍的起點和那時完全不同（1990 年的數字是歷史常識，本頁沒有附資料來源）。</li></ul></section>
+<section id="sec-4"><h2>和新資金規則的關係</h2><ul><li>70.3 元低於新資金規則第二階的 71.10 元。如果真的跌到 30,000 點，第一階（≤ 78.58）和第二階都可能觸發。</li><li>規則仍然有效：11-23 收盤後要先重跑 0050 研究，才能下單；兩階要在不同週成交；成交後 0050 不能超過全部證券的 62%。</li></ul></section>
+<section id="sec-5"><h2>限制</h2><ul><li><strong>名目金額</strong>：表內數字沒有扣除通膨。以年通膨 2% 估算，20 年中性的 2,641 萬約等於今天的 1,780 萬。</li><li><strong>稅與費用</strong>：配息所得稅、二代健保補充保費與交易成本都沒有扣除。</li><li><strong>集中度</strong>：台積電約占 0050 的六成。這張表很大程度是在押注台積電與台灣半導體，20 年內成分股也會大幅換手。</li><li><strong>EPS 不變的假設</strong>：計算時假設指數跌到 30,000 點時，前瞻 EPS 維持 5.35 元。如果下跌的原因是獲利下修，起點本益比會比 13.2 倍高，長期報酬會比表內低，這種情況比較接近保守情境。</li><li><strong>路徑風險</strong>：表內只看期末。過程中可能先跌 30～50%，例如 2008 年和 2022 年，所以要確認自己撐得住。</li></ul></section>
+</main>
+<footer>本頁由 Claude 依研究報告與持股紀錄整理，內容僅供個人研究參考，不構成投資建議。</footer>
+<div id="tip"></div>
+<button id="top" type="button" aria-label="回到頂端">↑ 頂端</button>
+
+<script>
+(function () {
+  var tip = document.getElementById("tip");
+  document.addEventListener("mousemove", function (e) {
+    var el = e.target.closest ? e.target.closest("[data-tip]") : null;
+    if (!el) { tip.style.display = "none"; return; }
+    tip.textContent = el.getAttribute("data-tip");
+    tip.style.display = "block";
+    var x = e.clientX + 14, y = e.clientY + 14;
+    if (x + tip.offsetWidth > window.innerWidth - 8) x = e.clientX - tip.offsetWidth - 14;
+    if (y + tip.offsetHeight > window.innerHeight - 8) y = e.clientY - tip.offsetHeight - 14;
+    tip.style.left = x + "px"; tip.style.top = y + "px";
+  });
+  // 選單標出目前閱讀的章節，並把該項目捲到選單中間（手機上選單會左右捲動）
+  var nav = document.querySelector("nav.toc"), link = {}, top = document.getElementById("top");
+  nav.querySelectorAll("a").forEach(function (a) { link[a.getAttribute("href").slice(1)] = a; });
+  var section = document.querySelectorAll("main > section[id]");
+  function mark() {
+    var line = nav.offsetHeight + 24, current = null;
+    section.forEach(function (s) { if (s.getBoundingClientRect().top <= line) current = s.id; });
+    if (section.length && window.innerHeight + window.scrollY >= document.body.scrollHeight - 4) current = section[section.length - 1].id;
+    Object.keys(link).forEach(function (id) { link[id].classList.toggle("active", id === current); });
+    var a = link[current];
+    if (a) nav.scrollLeft = a.offsetLeft - (nav.clientWidth - a.offsetWidth) / 2;
+    top.style.display = window.scrollY > 600 ? "block" : "none";
+  }
+  window.addEventListener("scroll", mark, { passive: true });
+  mark();
+  top.addEventListener("click", function () { window.scrollTo({ top: 0 }); });
+})();
+</script>
+</body>
+</html>
