@@ -218,6 +218,80 @@ def financial(ticker, quarters, day):
     return data
 
 
+# 個別公司的資產負債表與現金流量表，用來核對獲利有沒有轉成現金：合約資產與應收款是工程認列後尚未收款的部分。
+# 每個欄位依序取存在的會計項目並加總；項目名稱依產業別不同，找不到時記為缺漏。
+BALANCE = {
+    "現金": ("現金及約當現金",),
+    "應收票據及帳款": ("應收票據淨額", "應收票據－關係人淨額", "應收帳款淨額", "應收帳款－關係人淨額"),
+    "合約資產": ("合約資產－流動", "合約資產－非流動"),
+    "存貨": ("存貨",),
+    "合約負債": ("合約負債－流動", "合約負債－非流動"),
+    "有息負債": ("短期借款", "應付短期票券", "一年或一營業週期內到期長期負債", "一年內到期長期負債",
+             "應付公司債", "長期借款"),
+    "負債總額": ("負債總額", "負債總計"),
+    "歸母權益": ("歸屬於母公司業主之權益合計",),
+    "普通股股本": ("普通股股本",),
+}
+CASHFLOW = {
+    "營業現金流": ("營業活動之淨現金流入（流出）",),
+    "資本支出": ("取得不動產、廠房及設備",),
+    "折舊": ("折舊費用",),
+}
+
+
+def parse_report(html):
+    """解析觀測站個別報表，回傳 {會計項目: 本期金額}。本期金額是每列第一個數字欄。"""
+    result = {}
+    for row in re.findall(r"<tr[^>]*>(.*?)</tr>", html, re.S | re.I):
+        value = [cell(itor) for itor in re.findall(r"<t[dh][^>]*>(.*?)</t[dh]>", row, re.S | re.I)]
+        if len(value) > 1 and value[0] and value[0] not in result:
+            result[value[0]] = number(value[1])
+    return result
+
+
+def report(page, ticker, year, season):
+    form = {"encodeURIComponent": 1, "step": 1, "firstin": 1, "off": 1, "queryName": "co_id", "inpuType": "co_id",
+            "TYPEK": "all", "isnew": "false", "co_id": ticker, "year": year - 1911, "season": f"{season:02d}"}
+    url = f"{MOPS}/mops/web/ajax_{page}"
+    html = fetch(url, form, keep=lambda text: bool(parse_report(text)) and "查詢過於頻繁" not in text)
+    if "查詢過於頻繁" in html or "因為安全性考量" in html:
+        raise ValueError("公開資訊觀測站暫時拒絕查詢，請稍後再試")
+    return parse_report(html)
+
+
+def pick(row, label):
+    value = [row[k] for k in label if row.get(k) is not None]
+    return sum(value) if value else None
+
+
+def position(ticker, quarters, day):
+    """各季末資產負債與年初至該季的累計現金流量。金額單位仟元。"""
+    data = Dataset("position", f"{ticker} 資產負債與現金流量", ["季"] + list(BALANCE) + list(CASHFLOW),
+                   {name: "仟元" for name in list(BALANCE) + list(CASHFLOW)},
+                   "資產負債為季末餘額；營業現金流、資本支出、折舊為年初至該季累計，單季數要相減推算")
+    period = recent_quarter(day, quarters + 1)
+    for year, season in period:
+        balance = report("t164sb03", ticker, year, season)
+        if not balance:
+            if (year, season) == period[-1]:
+                data.missing.append(f"{year}Q{season} 財報尚未公告")
+            else:
+                data.missing.append(f"{year}Q{season} 資產負債表")
+            continue
+        flow = report("t164sb05", ticker, year, season)
+        if not flow:
+            data.missing.append(f"{year}Q{season} 現金流量表")
+        value = [pick(balance, label) for label in BALANCE.values()] + [pick(flow, label) for label in CASHFLOW.values()]
+        lack = [name for name, itor in zip(list(BALANCE) + list(CASHFLOW), value) if itor is None]
+        if lack:
+            data.missing.append(f"{year}Q{season} 找不到：{'、'.join(lack)}")
+        data.row.append([f"{year}Q{season}"] + value)
+    data.row = data.row[-quarters:]
+    data.add_source("公開資訊觀測站｜資產負債表", f"{MOPS}/mops/web/t164sb03")
+    data.add_source("公開資訊觀測站｜現金流量表", f"{MOPS}/mops/web/t164sb05")
+    return data
+
+
 def revenue_page(typek, month, foreign, day):
     url = f"{MOPS}/nas/t21/{typek}/t21sc03_{month.year - 1911}_{month.month}_{1 if foreign else 0}.html"
     return url, fetch(url, encoding="cp950", keep=(lambda text: "公司代號" in text) if past(month, day) else False)

@@ -190,6 +190,52 @@ class FetchMarketTest(unittest.TestCase):
         self.assertIn("- S&P 500 6,910（2026-11-20）；報酬 1 日 -3.7%", text)
         self.assertIn("- VIX 35.89（2026-11-20）；前一交易日 28.44，近 1 年 28.44～35.89", text)
 
+    def test_parse_balance_and_cashflow(self):
+        balance = fetch_data.parse_report((DATA / "t164sb03_8936_115q3.html").read_text(encoding="utf-8"))
+        flow = fetch_data.parse_report((DATA / "t164sb05_8936_115q3.html").read_text(encoding="utf-8"))
+        self.assertEqual(balance["合約資產－流動"], 3377053)
+        self.assertEqual(balance["歸屬於母公司業主之權益合計"], 6689966)
+        self.assertEqual(fetch_data.pick(balance, fetch_data.BALANCE["有息負債"]), 905000 + 50000 + 1419176 + 1975954)
+        self.assertEqual(flow["營業活動之淨現金流入（流出）"], -217057)
+        self.assertEqual(flow["取得不動產、廠房及設備"], -404746)
+
+    def test_position_skips_unpublished_quarter(self):
+        page = {"t164sb03": (DATA / "t164sb03_8936_115q3.html").read_text(encoding="utf-8"),
+                "t164sb05": (DATA / "t164sb05_8936_115q3.html").read_text(encoding="utf-8")}
+
+        def report(name, ticker, year, season):
+            return fetch_data.parse_report(page[name]) if (year, season) == (2026, 3) else {}
+
+        with mock.patch.object(fetch_data, "report", report):
+            data = fetch_data.position("8936", 1, date(2027, 1, 5))
+        self.assertEqual([r[0] for r in data.row], ["2026Q3"])
+        self.assertIn("2026Q4 財報尚未公告", data.missing)
+        self.assertEqual(data.row[0][data.column.index("營業現金流")], -217057)
+
+    def test_total_return_adds_back_dividend(self):
+        import collect
+        price = source.Dataset("price", "", ["日期", "開盤", "最高", "最低", "收盤", "成交量"])
+        price.row = [["2026-10-21", 0, 0, 0, 51.2, 0], ["2026-10-22", 0, 0, 0, 47.85, 0], ["2026-10-23", 0, 0, 0, 47.85, 0]]
+        dividend = source.Dataset("dividend", "", ["日期", "權值+息值", "類別"])
+        dividend.row = [["2026-10-22", 3.0, "除息"]]
+        level, paid = collect.total_return({"price": price, "dividend": dividend})
+        self.assertTrue(paid)
+        self.assertAlmostEqual(level[-1], 50.85 / 51.2)
+
+    def test_position_section_ratios(self):
+        import collect
+        column = ["季"] + list(fetch_data.BALANCE) + list(fetch_data.CASHFLOW)
+        position = source.Dataset("position", "", column)
+        base = dict(現金=100, 應收票據及帳款=200, 合約資產=400, 存貨=0, 合約負債=0, 有息負債=300, 負債總額=0,
+                    歸母權益=1000, 普通股股本=100, 折舊=0)
+        position.row = [[q] + [dict(base, 營業現金流=cash, 資本支出=capex).get(k) for k in column[1:]]
+                        for q, cash, capex in (("2026Q1", 50, -10), ("2026Q2", 30, -20))]
+        financial = source.Dataset("financial", "", [])
+        financial.row = [[q, 300, 0, 0, 0, 10, 0, 0, 0] for q in ("2025Q3", "2025Q4", "2026Q1", "2026Q2")]
+        text = collect.position_section({"position": position, "financial": financial})
+        self.assertIn("| 2026Q2 | 0.00 | 0.00 | 0.00 | 0.00 | 50.0 | 0.00 | 100.00 |", text)
+        self.assertIn("| 2026Q2 | -0.00 | -0.00 | -0.00 |", text)
+
 
 if __name__ == "__main__":
     unittest.main()

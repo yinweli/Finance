@@ -72,7 +72,8 @@ def collect(ticker, work, day, log=print):
         if exchange == "TWSE":
             venue.append(("lending", lambda: fetch_market.lending(ticker, days60[-20:], day)))
         group["觀測站"] += [("financial", lambda: fetch_data.financial(ticker, 12, day)),
-                         ("revenue", lambda: fetch_data.revenue(ticker, 25, day))]
+                         ("revenue", lambda: fetch_data.revenue(ticker, 25, day)),
+                         ("position", lambda: fetch_data.position(ticker, 5, day))]
         group["其他"].append(("holders", lambda: fetch_market.holders(ticker)))
     else:
         group["其他"] += [("etf", lambda: fetch_data.etf(ticker)), ("fx", lambda: fetch_market.fx(MONTHS, day))]
@@ -171,6 +172,19 @@ def change(series, back):
     return (series[-1] / series[-1 - back] - 1) * 100
 
 
+def total_return(data):
+    """含息報酬指數：除息日把當日股利加回收盤，和前一日比較，連乘成指數。回傳與 price 列對齊的清單。"""
+    row = data["price"].row
+    cash = {}
+    for itor in data["dividend"].row if "dividend" in data else []:
+        if itor[1]:
+            cash[itor[0]] = cash.get(itor[0], 0) + itor[1]
+    level = [1.0] if row else []
+    for before, after in zip(row, row[1:]):
+        level.append(level[-1] * (after[4] + cash.get(after[0], 0)) / before[4] if before[4] and after[4] else level[-1])
+    return level, bool(cash)
+
+
 def mean(value):
     value = [itor for itor in value if itor is not None]
     return sum(value) / len(value) if value else None
@@ -216,6 +230,7 @@ def price_section(data):
     close = [itor[4] for itor in row]
     volume = [itor[5] for itor in row]
     last = row[-1]
+    level, paid = total_return(data)
     year = close[-250:]
     bench = data.get("otc_index") or data.get("taiex")
     slope, weeks = beta([(itor[0], itor[4]) for itor in row[-500:]], [(itor[0], itor[1]) for itor in bench.row])         if bench and bench.row else (None, 0)
@@ -229,6 +244,9 @@ def price_section(data):
             "- 報酬：" + "、".join(f"{label} {pct(change(close, n))}"
                                 for label, n in (("1 個月", 21), ("3 個月", 63), ("6 個月", 126), ("1 年", 250),
                                                  ("2 年", 500))),
+            ("- 含息報酬（除息日把股利加回）：" + "、".join(f"{label} {pct(change(level, n))}"
+                for label, n in (("1 個月", 21), ("3 個月", 63), ("6 個月", 126), ("1 年", 250), ("2 年", 500))))
+            if paid else None,
             f"- 年化波動度（近 2 年日報酬）：{fmt(volatility(close), 1)}%" if volatility(close) else None,
             f"- Beta（近 2 年 {weeks} 週報酬，相對{'櫃買指數' if data.get('otc_index') else '加權指數'}）：{fmt(slope)}" if slope is not None else None,
             f"- 成交量：近 20 日均量 {fmt(mean(volume[-20:]), 0)} 張，近 60 日均量 {fmt(mean(volume[-60:]), 0)} 張"]
@@ -263,6 +281,66 @@ def financial_section(data):
     line = ["## 單季財報", "", table(["季", "營收（億元）", "毛利率 %", "營益率 %", "歸母淨利（億元）", "EPS"], body)]
     if len(eps) == 4:
         line.append(f"\n近四季 EPS 合計：{sum(eps):.2f} 元")
+    return "\n".join(line)
+
+
+def position_section(data):
+    """資產負債與現金流量：獲利轉成現金的程度。工程與接案型公司看合約資產與應收款占營收的比率。"""
+    if "position" not in data or not data["position"].row:
+        return ""
+    row = data["position"].row
+    column = data["position"].column
+    get = lambda r, name: r[column.index(name)]
+    revenue = {r[0]: r[1] for r in data["financial"].row} if "financial" in data else {}
+    income = {r[0]: r[5] for r in data["financial"].row} if "financial" in data else {}
+    order = sorted(revenue)
+
+    def trailing(table, quarter):
+        if quarter not in order or order.index(quarter) < 3:
+            return None
+        value = [table[q] for q in order[order.index(quarter) - 3:order.index(quarter) + 1]]
+        return sum(value) if None not in value else None
+
+    def single(r, name):
+        if get(r, name) is None:
+            return None
+        if r[0].endswith("Q1"):
+            return get(r, name)
+        before = next((b for b in row if b[0] == f"{r[0][:5]}{int(r[0][-1]) - 1}"), None)
+        return get(r, name) - get(before, name) if before and get(before, name) is not None else None
+
+    yi = lambda value: fmt(value / 1e5) if value is not None else "—"
+    body = []
+    for r in row:
+        receivable = [get(r, "應收票據及帳款"), get(r, "合約資產")]
+        total = sum(receivable) if None not in receivable else None
+        ttm = trailing(revenue, r[0])
+        debt = [get(r, "有息負債"), get(r, "現金")]
+        share = get(r, "普通股股本")
+        body.append([r[0], yi(get(r, "現金")), yi(get(r, "應收票據及帳款")), yi(get(r, "合約資產")), yi(get(r, "存貨")),
+                     fmt(total / ttm * 100, 1) if total is not None and ttm else "—",
+                     yi(debt[0] - debt[1]) if None not in debt else "—",
+                     fmt(get(r, "歸母權益") / (share / 10)) if get(r, "歸母權益") and share else "—"])
+    line = ["## 資產負債與現金流量", "",
+            table(["季末", "現金（億元）", "應收票據及帳款（億元）", "合約資產（億元）", "存貨（億元）",
+                   "應收＋合約資產占近四季營收 %", "淨有息負債（億元）", "每股淨值（元）"], body)]
+    flow = []
+    for r in row:
+        cash, capex = single(r, "營業現金流"), single(r, "資本支出")
+        flow.append((r[0], cash, capex, cash + capex if cash is not None and capex is not None else None))
+    line += ["", "單季現金流量（由累計數相減推算；資本支出為負數）：", "",
+             table(["季", "營業現金流（億元）", "資本支出（億元）", "自由現金流（億元）"],
+                   [[q, yi(a), yi(b), yi(c)] for q, a, b, c in flow])]
+    last = flow[-4:]
+    if len(last) == 4 and None not in [itor[1] for itor in last]:
+        cash = sum(itor[1] for itor in last)
+        text = f"\n近四季營業現金流合計 {yi(cash)} 億元"
+        if None not in [itor[3] for itor in last]:
+            text += f"、自由現金流 {yi(sum(itor[3] for itor in last))} 億元"
+        net = trailing(income, row[-1][0])
+        if net:
+            text += f"；同期歸母淨利 {yi(net)} 億元，營業現金流 ÷ 歸母淨利 {fmt(cash / net * 100, 0)}%"
+        line.append(text + "（營業現金流含少數股權，口徑略大於歸母）")
     return "\n".join(line)
 
 
@@ -321,6 +399,19 @@ def chips_section(data):
     return "\n".join(line) if len(line) > 1 else ""
 
 
+def relative(data, index, name):
+    """個股含息報酬相對指數報酬的差距。指數是價格指數、未含息，大盤殖利率約每年 2～3%，期間越長差距越偏向個股。"""
+    level, paid = total_return(data)
+    value = {r[0]: v for r, v in zip(data["price"].row, level)}
+    pair = [(r[1], value[r[0]]) for r in index if r[0] in value and r[1]]
+    if len(pair) <= 126:
+        return None
+    rel = "、".join(f"{label} {pct(((pair[-1][1] / pair[-1 - n][1]) / (pair[-1][0] / pair[-1 - n][0]) - 1) * 100)}"
+                   for label, n in (("1 個月", 21), ("3 個月", 63), ("6 個月", 126)))
+    basis = "標的含息、指數未含息" if paid else "期間內無除息"
+    return f"- 相對{name}的超額報酬（{basis}）：{rel}"
+
+
 def market_section(data):
     line = ["## 市場健康度"]
     row = data["taiex"].row
@@ -333,16 +424,12 @@ def market_section(data):
                                            for label, n in (("1 個月", 21), ("3 個月", 63), ("6 個月", 126), ("1 年", 250))),
                  f"- 成交金額：近 20 日平均 {fmt(mean(value[-20:]), 0)} 億元，近 60 日平均 {fmt(mean(value[-60:]), 0)} 億元，"
                  f"近 250 日平均 {fmt(mean(value[-250:]), 0)} 億元"]
-        close = {r[0]: r[4] for r in data["price"].row}
-        pair = [(r[1], close[r[0]]) for r in row if r[0] in close]
-        if len(pair) > 126:
-            rel = "、".join(f"{label} {pct(((pair[-1][1] / pair[-1 - n][1]) / (pair[-1][0] / pair[-1 - n][0]) - 1) * 100)}"
-                           for label, n in (("1 個月", 21), ("3 個月", 63), ("6 個月", 126)))
-            line.append(f"- 相對加權指數的超額報酬：{rel}")
+        line.append(relative(data, row, "加權指數"))
     if "otc_index" in data and data["otc_index"].row:
         index = [r[1] for r in data["otc_index"].row]
         line.append(f"- 櫃買指數 {fmt(index[-1])}，60 日均線 {fmt(mean(index[-60:]))}，"
                     f"240 日均線 {fmt(mean(index[-240:]))}，近 3 個月 {pct(change(index, 63))}")
+        line.append(relative(data, data["otc_index"].row, "櫃買指數"))
     if "market_margin" in data and data["market_margin"].row:
         value = [r[1] for r in data["market_margin"].row]
         line.append(f"- 上市融資金額 {fmt(value[-1], 0)} 億元，近 20 日 {pct(change(value, 20))}、"
@@ -369,7 +456,7 @@ def market_section(data):
                 text += "；報酬 " + "、".join(f"{label} {pct(change(close, n))}"
                                             for label, n in (("1 日", 1), ("1 個月", 21), ("3 個月", 63), ("1 年", 250)))
             line.append(text)
-    return "\n".join(line)
+    return "\n".join(itor for itor in line if itor is not None)
 
 
 def etf_section(data):
@@ -425,7 +512,7 @@ def summarize(info, data):
     head = [f"# {info['代號']} {info['名稱']} 資料摘要\n\n"
             f"- 類型：{info['類型']}；交易所：{info['交易所']}；研究日：{info['研究日']}\n"
             f"- 本檔由 `工具/collect.py` 產生，完整資料在 `資料/*.json`。數字以本檔與 `資料/` 為準。"]
-    part = [price_section(data), valuation_section(data), financial_section(data), revenue_section(data),
+    part = [price_section(data), valuation_section(data), financial_section(data), position_section(data), revenue_section(data),
             dividend_section(data), etf_section(data), chips_section(data), market_section(data), macro_section(data)]
     missing = [f"- {name}：{'；'.join(itor.missing[:5])}{' 等' if len(itor.missing) > 5 else ''}"
                for name, itor in data.items() if itor.missing]
